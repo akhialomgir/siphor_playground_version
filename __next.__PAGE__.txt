@@ -1,0 +1,7 @@
+1:"$Sreact.fragment"
+2:I[60057,["/siphor_playground_version/_next/static/chunks/1f09e448d5f89ba1.js"],"default"]
+3:I[24335,["/siphor_playground_version/_next/static/chunks/1f09e448d5f89ba1.js"],"default"]
+4:I[97367,["/siphor_playground_version/_next/static/chunks/2f236954d6a65e12.js"],"OutletBoundary"]
+5:"$Sreact.suspense"
+0:{"buildId":"3YY6osr_4Uuj27hUVq54e","rsc":["$","$1","c",{"children":[["$","div",null,{"className":"grid grid-rows-[1fr_auto] gap-4 w-screen h-screen bg-[#0b1220] text-slate-100","children":[["$","div",null,{"className":"grid grid-cols-2 gap-4 p-4","children":[["$","$L2",null,{}],["$","$L3",null,{}]]}],["$","div",null,{"className":"border border-slate-700 h-16 bg-[#0f1625]"}]]}],[["$","script","script-0",{"src":"/siphor_playground_version/_next/static/chunks/1f09e448d5f89ba1.js","async":true}]],["$","$L4",null,{"children":["$","$5",null,{"name":"Next.MetadataOutlet","children":"$@6"}]}]]}],"loading":null,"isPartial":false}
+6:null
