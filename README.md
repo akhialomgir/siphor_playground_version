@@ -1,36 +1,18 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SiPhor
 
-## Getting Started
+Start your flow. See it become one.
 
-First, run the development server:
+## todos
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- [x] 布局基础设计
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+数据流向： 
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- [x] 积分体系.json->
+- [ ] 拖拽到扣分项，记分项，能够开始计时与暂停->
+- [ ] 日统计能够显示总积分（更高需求，用混色体现评价）->
+- [ ] 时间墙->
+- [ ] 目标增益可以打tag，通过捕获tag来增加技能统计的用时->
+- [ ] 复习曲线通用设计，可以不断放入，自动取出（注意要有足够的分类，以便未来可能的拓展操作）
+- [ ] 优化任务通用数据结构，并可以支持原地编辑
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
