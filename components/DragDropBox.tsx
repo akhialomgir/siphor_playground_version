@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import styles from './DragDropBox.module.css';
 
 interface Criteria {
     time: number;
@@ -28,6 +29,7 @@ interface DroppedEntry {
     fixedScore?: number; // if no criteria
     categoryKey?: string;
     bonusActive?: boolean; // for targetGains bonus toggle
+    justAdded?: boolean;
 }
 
 const badgeBase: React.CSSProperties = {
@@ -88,12 +90,22 @@ export default function DragDropBox() {
             if (entry.scoreType === 'deduction') {
                 setDeductions(prev => {
                     const exists = prev.some(p => p.id === entry.id);
-                    return exists ? prev : [...prev, entry];
+                    if (exists) return prev;
+                    const fresh = { ...entry, justAdded: true };
+                    setTimeout(() => {
+                        setDeductions(current => current.map(p => p.id === fresh.id ? { ...p, justAdded: false } : p));
+                    }, 950);
+                    return [...prev, fresh];
                 });
             } else {
                 setGains(prev => {
                     const exists = prev.some(p => p.id === entry.id);
-                    return exists ? prev : [...prev, entry];
+                    if (exists) return prev;
+                    const fresh = { ...entry, justAdded: true };
+                    setTimeout(() => {
+                        setGains(current => current.map(p => p.id === fresh.id ? { ...p, justAdded: false } : p));
+                    }, 950);
+                    return [...prev, fresh];
                 });
             }
         } catch (err) {
@@ -128,7 +140,7 @@ export default function DragDropBox() {
         gridTemplateColumns: '1fr auto',
         alignItems: 'center',
         gap: '8px',
-        padding: '8px 0',
+        padding: '8px 10px',
         borderBottom: '1px solid #1f2937'
     };
 
@@ -138,7 +150,11 @@ export default function DragDropBox() {
         const isTargetGain = entry.categoryKey === 'targetGains' && entry.scoreType === 'gain';
 
         return (
-            <div key={`${list}-${entry.id}`} style={listItemStyle}>
+            <div
+                key={`${list}-${entry.id}`}
+                style={listItemStyle}
+                className={`${styles.entry} ${entry.justAdded ? styles.entryHighlight : ''}`}
+            >
                 <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>{entry.name}</span>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -229,7 +245,7 @@ export default function DragDropBox() {
     };
 
     return (
-        <div style={sectionStyle} onDragOver={allowDrop} onDrop={onDrop}>
+        <div className={styles.section} style={sectionStyle} onDragOver={allowDrop} onDrop={onDrop}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr', gap: '16px' }}>
                 <div>
                     <div style={{ fontWeight: 600, marginBottom: '8px', color: '#e5e7eb' }}>Deductions</div>
