@@ -177,9 +177,8 @@ export default function ScoringDisplay() {
                                 const isSelected = selectedIds.has(fullId);
                                 const highlightStyle: React.CSSProperties = isSelected ? {
                                     backgroundColor: 'rgba(110, 231, 183, 0.14)',
-                                    border: '1px solid rgba(110, 231, 183, 0.28)',
-                                    borderRadius: '6px',
-                                    boxShadow: 'none'
+                                    outline: '1px solid rgba(110, 231, 183, 0.28)',
+                                    borderRadius: '6px'
                                 } : {};
 
                                 return (

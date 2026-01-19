@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
+import { clearPersistedState, loadPersistedState, savePersistedState } from './dropStorage';
 
 interface Criteria {
     time: number;
@@ -60,12 +61,80 @@ function computeScore(entry: DroppedEntry): number {
 export default function DragDropBox() {
     const [deductions, setDeductions] = useState<DroppedEntry[]>([]);
     const [gains, setGains] = useState<DroppedEntry[]>([]);
+    const [dateKey, setDateKey] = useState<string>(() => new Date().toISOString().slice(0, 10));
+    const [hydrated, setHydrated] = useState(false);
+    const [isPressingClear, setIsPressingClear] = useState(false);
+    const clearTimerRef = useRef<number | null>(null);
     const { replaceAll } = useDroppedItems();
+
+    const formatDate = (key: string) => {
+        if (!key) return '';
+        const [y, m, d] = key.split('-');
+        return `${y}-${m}-${d}`;
+    };
+
+    const ensureTodayKey = () => {
+        const today = new Date();
+        const key = today.toISOString().slice(0, 10); // YYYY-MM-DD
+        const changed = key !== dateKey;
+        if (changed) {
+            setDateKey(key);
+            setDeductions([]);
+            setGains([]);
+            setHydrated(false);
+        }
+        return { key, changed };
+    };
 
     useEffect(() => {
         const ids = [...deductions, ...gains].map(e => e.id);
         replaceAll(ids);
     }, [deductions, gains, replaceAll]);
+
+    useEffect(() => {
+        let mounted = true;
+        loadPersistedState(dateKey).then(state => {
+            if (!mounted) return;
+            const normalize = (list: DroppedEntry[]) => list.map(e => ({ ...e, justAdded: false }));
+            setDeductions(normalize(state.deductions ?? []));
+            setGains(normalize(state.gains ?? []));
+            setHydrated(true);
+        }).catch(() => {
+            setHydrated(true);
+        });
+        return () => {
+            mounted = false;
+        };
+    }, [dateKey]);
+
+    useEffect(() => {
+        if (!hydrated || !dateKey) return;
+        savePersistedState(dateKey, deductions, gains);
+    }, [deductions, gains, hydrated, dateKey]);
+
+    const triggerClear = () => {
+        setDeductions([]);
+        setGains([]);
+        if (dateKey) clearPersistedState(dateKey);
+    };
+
+    const startClearHold = () => {
+        if (clearTimerRef.current) window.clearTimeout(clearTimerRef.current);
+        setIsPressingClear(true);
+        clearTimerRef.current = window.setTimeout(() => {
+            clearTimerRef.current = null;
+            triggerClear();
+            setIsPressingClear(false);
+        }, 3000);
+    };
+
+    const cancelClearHold = () => {
+        if (clearTimerRef.current) {
+            window.clearTimeout(clearTimerRef.current);
+            clearTimerRef.current = null;
+        }
+        setIsPressingClear(false);
+    };
 
     const allowDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
@@ -73,6 +142,11 @@ export default function DragDropBox() {
 
     const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
+        const { key: todayKey, changed } = ensureTodayKey();
+        if (changed) {
+            // wait for new day hydration, ask user to drop again
+            return;
+        }
         let data = e.dataTransfer.getData('application/json');
         if (!data) {
             // Fallback to text/plain if needed
@@ -253,6 +327,11 @@ export default function DragDropBox() {
 
     return (
         <div className={styles.section} style={sectionStyle} onDragOver={allowDrop} onDrop={onDrop}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div className={styles.dateChip}>{formatDate(dateKey) || '—'}</div>
+                <div style={{ color: '#94a3b8', fontSize: '12px' }}>每日记录</div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr', gap: '16px' }}>
                 <div>
                     <div style={{ fontWeight: 600, marginBottom: '8px', color: '#e5e7eb' }}>Deductions</div>
@@ -279,6 +358,17 @@ export default function DragDropBox() {
                     (gains.reduce((acc, e) => acc + computeScore(e), 0)) - (deductions.reduce((acc, e) => acc + computeScore(e), 0))
                 } />
             </div>
+
+            <button
+                className={`${styles.clearButton} ${isPressingClear ? styles.clearButtonActive : ''}`}
+                onPointerDown={startClearHold}
+                onPointerUp={cancelClearHold}
+                onPointerLeave={cancelClearHold}
+                onPointerCancel={cancelClearHold}
+                aria-label="Clear all dropped items"
+            >
+                Clear
+            </button>
         </div>
     );
 }
