@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import styles from './DragDropBox.module.css';
+import { useDroppedItems } from './DroppedItemsContext';
 
 interface Criteria {
     time: number;
@@ -59,6 +60,12 @@ function computeScore(entry: DroppedEntry): number {
 export default function DragDropBox() {
     const [deductions, setDeductions] = useState<DroppedEntry[]>([]);
     const [gains, setGains] = useState<DroppedEntry[]>([]);
+    const { replaceAll } = useDroppedItems();
+
+    useEffect(() => {
+        const ids = [...deductions, ...gains].map(e => e.id);
+        replaceAll(ids);
+    }, [deductions, gains, replaceAll]);
 
     const allowDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();

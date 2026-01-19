@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import scoringData from '@/data/scoring.json';
+import { useDroppedItems } from './DroppedItemsContext';
 
 interface Criteria {
     time: number;
@@ -25,6 +26,7 @@ interface ScoringCategory {
 
 export default function ScoringDisplay() {
     const [data, setData] = useState<Record<string, ScoringCategory> | null>(null);
+    const { selectedIds } = useDroppedItems();
 
     // Load scoring data on component mount
     useEffect(() => {
@@ -171,6 +173,14 @@ export default function ScoringDisplay() {
                             {category.items.map((item, index) => {
                                 const hasCriteria = item.criteria && item.criteria.length > 0;
                                 const criteriaNode = renderCriteria(item);
+                                const fullId = `${categoryKey}-${item.id}`;
+                                const isSelected = selectedIds.has(fullId);
+                                const highlightStyle: React.CSSProperties = isSelected ? {
+                                    backgroundColor: 'rgba(110, 231, 183, 0.14)',
+                                    border: '1px solid rgba(110, 231, 183, 0.28)',
+                                    borderRadius: '6px',
+                                    boxShadow: 'none'
+                                } : {};
 
                                 return (
                                     <div
@@ -193,7 +203,8 @@ export default function ScoringDisplay() {
                                             padding: '12px 16px',
                                             display: 'grid',
                                             gridTemplateColumns: '1fr auto',
-                                            gap: '8px'
+                                            gap: '8px',
+                                            ...highlightStyle
                                         }}
                                     >
                                         {/* Left details */}
