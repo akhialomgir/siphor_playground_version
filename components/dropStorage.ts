@@ -82,3 +82,36 @@ export async function clearPersistedState(dateKey: string) {
         // ignore
     }
 }
+
+export async function listAllStates(): Promise<Array<{ dateKey: string; state: PersistedState }>> {
+    try {
+        const db = await openDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.getAllKeys();
+            req.onsuccess = async () => {
+                const keys = (req.result as string[]).filter(Boolean);
+                const results: Array<{ dateKey: string; state: PersistedState }> = [];
+                const fetches = keys.map(key => new Promise<void>((res, rej) => {
+                    const r = store.get(key);
+                    r.onsuccess = () => {
+                        const payload = (r.result as PersistedState | undefined) ?? { deductions: [], gains: [] };
+                        results.push({ dateKey: key, state: payload });
+                        res();
+                    };
+                    r.onerror = () => rej(r.error ?? new Error('Read failed'));
+                }));
+                try {
+                    await Promise.all(fetches);
+                    resolve(results);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            req.onerror = () => reject(req.error ?? new Error('List keys failed'));
+        });
+    } catch (err) {
+        return [];
+    }
+}

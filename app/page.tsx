@@ -1,6 +1,7 @@
 import ScoringDisplay from '@/components/ScoringDisplay';
 import DragDropBox from '@/components/DragDropBox';
 import { DroppedItemsProvider } from '@/components/DroppedItemsContext';
+import HistoryHeatmap from '@/components/HistoryHeatmap';
 
 export default function Home() {
   return (
@@ -11,7 +12,9 @@ export default function Home() {
           <ScoringDisplay />
         </div>
 
-        <div className="border border-slate-700 h-16 bg-[#0f1625]"></div>
+        <div className="border border-slate-700 h-28 bg-[#0f1625] px-4 py-4 overflow-hidden">
+          <HistoryHeatmap />
+        </div>
       </div>
     </DroppedItemsProvider>
   );

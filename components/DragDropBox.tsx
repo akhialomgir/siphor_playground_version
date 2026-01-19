@@ -329,7 +329,7 @@ export default function DragDropBox() {
         <div className={styles.section} style={sectionStyle} onDragOver={allowDrop} onDrop={onDrop}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <div className={styles.dateChip}>{formatDate(dateKey) || '—'}</div>
-                <div style={{ color: '#94a3b8', fontSize: '12px' }}>每日记录</div>
+                <div style={{ color: '#94a3b8', fontSize: '12px' }}>daily record</div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr', gap: '16px' }}>
