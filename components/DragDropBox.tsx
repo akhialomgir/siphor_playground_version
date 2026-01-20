@@ -6,6 +6,7 @@ import { useDroppedItems } from './DroppedItemsContext';
 import { clearPersistedState, loadPersistedState, savePersistedState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
+import { getFocusScore, getFocusCriteria } from '@/lib/scoring';
 
 interface Criteria {
     time: number;
@@ -72,6 +73,12 @@ function formatTimer(seconds: number): string {
     return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function getAccumulatedTargetGainsTime(gains: DroppedEntry[]): number {
+    return gains
+        .filter(g => g.categoryKey === 'targetGains')
+        .reduce((acc, g) => acc + (g.timerSeconds ?? 0), 0);
+}
+
 export default function DragDropBox() {
     const [deductions, setDeductions] = useState<DroppedEntry[]>([]);
     const [gains, setGains] = useState<DroppedEntry[]>([]);
@@ -80,6 +87,8 @@ export default function DragDropBox() {
     const [isPressingClear, setIsPressingClear] = useState(false);
     const [showCalendar, setShowCalendar] = useState(false);
     const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
+    const [focusScore, setFocusScore] = useState<number>(0);
+    const [focusTime, setFocusTime] = useState<number>(0);
     const clearTimerRef = useRef<number | null>(null);
     const { replaceAll } = useDroppedItems();
 
@@ -154,6 +163,41 @@ export default function DragDropBox() {
             return changed ? next : prev;
         });
     }, [gains, editable, hydrated]);
+
+    useEffect(() => {
+        if (!editable || !activeTimerId) return;
+        const interval = window.setInterval(() => {
+            setGains(prev => {
+                const now = Date.now();
+                let changed = false;
+                const next = prev.map(g => {
+                    if (g.id !== activeTimerId || g.categoryKey !== 'targetGains') return g;
+                    if (!g.timerRunning || !g.timerStartTs) return g;
+                    const delta = Math.max(0, Math.floor((now - g.timerStartTs) / 1000));
+                    if (delta <= 0) return g;
+                    changed = true;
+                    return {
+                        ...g,
+                        timerSeconds: (g.timerSeconds ?? 0) + delta,
+                        timerStartTs: now
+                    };
+                });
+                if (changed) {
+                    const accum = getAccumulatedTargetGainsTime(next);
+                    setFocusTime(accum);
+                    setFocusScore(getFocusScore(accum));
+                }
+                return changed ? next : prev;
+            });
+        }, 1000);
+        return () => window.clearInterval(interval);
+    }, [activeTimerId, editable]);
+
+    useEffect(() => {
+        const accum = getAccumulatedTargetGainsTime(gains);
+        setFocusTime(accum);
+        setFocusScore(getFocusScore(accum));
+    }, [gains]);
 
     useEffect(() => {
         if (!editable || !activeTimerId) return;
@@ -597,6 +641,33 @@ export default function DragDropBox() {
                 <div style={{ backgroundColor: '#1f2937', width: '1px' }} />
                 <div>
                     <div style={{ fontWeight: 600, marginBottom: '8px', color: '#e5e7eb' }}>Gains</div>
+                    {focusTime > 0 && (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '8px 10px',
+                            borderBottom: '1px solid #1f2937',
+                            backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                            borderRadius: '4px',
+                            marginBottom: '4px'
+                        }}>
+                            <span style={{ fontWeight: 500, fontSize: '14px', color: '#6ee7b7' }}>focus</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{
+                                    fontVariantNumeric: 'tabular-nums',
+                                    fontSize: '12px',
+                                    color: '#94a3b8'
+                                }}>
+                                    {formatTimer(focusTime)}
+                                </span>
+                                <span style={{ backgroundColor: '#113227', color: '#6ee7b7', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 500 }}>
+                                    {focusScore} pts
+                                </span>
+                            </div>
+                        </div>
+                    )}
                     {gains.length === 0 ? (
                         <div style={{ color: '#94a3b8', fontSize: '12px' }}>{editable ? 'Drop items here' : 'Read-only'}</div>
                     ) : (
