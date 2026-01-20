@@ -14,7 +14,7 @@ export default function Home() {
             <ScoringDisplay />
           </div>
 
-          <div className="border border-slate-700 h-28 bg-[#0f1625] px-4 py-4 overflow-hidden">
+          <div className="mx-4 mb-6 border border-slate-700 bg-[#0f1625] p-4 rounded-xl shadow-md">
             <HistoryHeatmap />
           </div>
         </div>
