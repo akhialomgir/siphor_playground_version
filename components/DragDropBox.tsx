@@ -81,6 +81,8 @@ export default function DragDropBox() {
         return dateKey === today;
     };
 
+    const editable = isToday();
+
     const handleDateSelect = (newDateKey: string) => {
         setSelectedDate(newDateKey);
         setDeductions([]);
@@ -149,6 +151,9 @@ export default function DragDropBox() {
 
     const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
+        if (!editable) {
+            return;
+        }
         let data = e.dataTransfer.getData('application/json');
         if (!data) {
             // Fallback to text/plain if needed
@@ -244,6 +249,7 @@ export default function DragDropBox() {
                     {isTargetGain && (
                         <button
                             onClick={() => {
+                                if (!editable) return;
                                 if (list === 'deduction') {
                                     setDeductions(prev => prev.map(p => p.id === entry.id ? { ...p, bonusActive: !p.bonusActive } : p));
                                 } else {
@@ -252,14 +258,15 @@ export default function DragDropBox() {
                             }}
                             style={{
                                 border: 'none',
-                                background: entry.bonusActive ? '#2d1a1e' : '#113227',
-                                color: entry.bonusActive ? '#fca5a5' : '#6ee7b7',
+                                background: editable ? (entry.bonusActive ? '#2d1a1e' : '#113227') : '#1f2937',
+                                color: editable ? (entry.bonusActive ? '#fca5a5' : '#6ee7b7') : '#64748b',
                                 padding: '4px 8px',
                                 borderRadius: '4px',
-                                cursor: 'pointer',
+                                cursor: editable ? 'pointer' : 'not-allowed',
                                 fontWeight: 600,
                                 fontSize: '12px'
                             }}
+                            disabled={!editable}
                             aria-label="Toggle bonus"
                         >
                             {entry.bonusActive ? '✕' : '+10'}
@@ -275,15 +282,16 @@ export default function DragDropBox() {
                                     padding: '4px 28px 4px 8px',
                                     borderRadius: '4px',
                                     border: 'none',
-                                    backgroundColor: '#113227',
-                                    color: '#6ee7b7',
+                                    backgroundColor: editable ? '#113227' : '#1f2937',
+                                    color: editable ? '#6ee7b7' : '#64748b',
                                     fontWeight: 500,
-                                    cursor: 'pointer',
+                                    cursor: editable ? 'pointer' : 'not-allowed',
                                     appearance: 'none',
                                     WebkitAppearance: 'none',
                                     MozAppearance: 'none',
                                     outline: 'none'
                                 }}
+                                disabled={!editable}
                             >
                                 {entry.criteria!.map((c, i) => (
                                     <option value={i} key={`${entry.id}-opt-${i}`}>
@@ -304,6 +312,7 @@ export default function DragDropBox() {
                     )}
                     <button
                         onClick={() => {
+                            if (!editable) return;
                             if (list === 'deduction') {
                                 setDeductions(prev => prev.filter(p => p.id !== entry.id));
                             } else {
@@ -313,11 +322,12 @@ export default function DragDropBox() {
                         style={{
                             border: 'none',
                             background: 'transparent',
-                            color: '#94a3b8',
-                            cursor: 'pointer',
+                            color: editable ? '#94a3b8' : '#64748b',
+                            cursor: editable ? 'pointer' : 'not-allowed',
                             fontSize: '12px',
                             padding: '2px 6px'
                         }}
+                        disabled={!editable}
                         aria-label="Remove item"
                     >
                         ✕
@@ -341,6 +351,16 @@ export default function DragDropBox() {
                     {formatDate(dateKey) || '—'}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {!editable && (
+                        <span style={{
+                            background: '#1f2937',
+                            color: '#94a3b8',
+                            border: '1px solid #334155',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            fontSize: '12px'
+                        }}>🔒 locked</span>
+                    )}
                     {!isToday() && (
                         <button
                             onClick={handleReturnToToday}
@@ -377,7 +397,7 @@ export default function DragDropBox() {
                 <div>
                     <div style={{ fontWeight: 600, marginBottom: '8px', color: '#e5e7eb' }}>Deductions</div>
                     {deductions.length === 0 ? (
-                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>Drop items here</div>
+                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>{editable ? 'Drop items here' : 'Read-only'}</div>
                     ) : (
                         deductions.map(d => renderEntry(d, 'deduction'))
                     )}
@@ -386,7 +406,7 @@ export default function DragDropBox() {
                 <div>
                     <div style={{ fontWeight: 600, marginBottom: '8px', color: '#e5e7eb' }}>Gains</div>
                     {gains.length === 0 ? (
-                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>Drop items here</div>
+                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>{editable ? 'Drop items here' : 'Read-only'}</div>
                     ) : (
                         gains.map(g => renderEntry(g, 'gain'))
                     )}
@@ -406,6 +426,7 @@ export default function DragDropBox() {
                 onPointerUp={cancelClearHold}
                 onPointerLeave={cancelClearHold}
                 onPointerCancel={cancelClearHold}
+                disabled={!editable}
                 aria-label="Clear all dropped items"
             >
                 Clear
