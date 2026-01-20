@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import styles from './HistoryHeatmap.module.css';
 import { listAllStates, PersistedEntry, PersistedState } from './dropStorage';
+import { useSelectedDate } from './DateContext';
 
 interface DayTile {
     dateKey: string;
@@ -35,6 +36,7 @@ const FUTURE_WEEKS = 2; // grey extension into future
 
 export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
     const [tiles, setTiles] = useState<DayTile[]>([]);
+    const { setSelectedDate } = useSelectedDate();
 
     useEffect(() => {
         let mounted = true;
@@ -87,7 +89,14 @@ export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
                     key={tile.dateKey}
                     className={getTileClass(tile)}
                     title={`${tile.dateKey} · ${tile.score} pts${tile.isFuture ? ' · upcoming' : ''}`}
-                    onClick={() => !tile.isFuture && onDateSelect?.(tile.dateKey)}
+                    onClick={() => {
+                        if (tile.isFuture) return;
+                        if (onDateSelect) {
+                            onDateSelect(tile.dateKey);
+                        } else {
+                            setSelectedDate(tile.dateKey);
+                        }
+                    }}
                     role={tile.isFuture ? undefined : "button"}
                     tabIndex={tile.isFuture ? undefined : 0}
                     style={{

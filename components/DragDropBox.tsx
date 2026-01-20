@@ -5,6 +5,7 @@ import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
 import { clearPersistedState, loadPersistedState, savePersistedState } from './dropStorage';
 import Calendar from './Calendar';
+import { useSelectedDate } from './DateContext';
 
 interface Criteria {
     time: number;
@@ -62,7 +63,7 @@ function computeScore(entry: DroppedEntry): number {
 export default function DragDropBox() {
     const [deductions, setDeductions] = useState<DroppedEntry[]>([]);
     const [gains, setGains] = useState<DroppedEntry[]>([]);
-    const [dateKey, setDateKey] = useState<string>(() => new Date().toISOString().slice(0, 10));
+    const { selectedDate: dateKey, setSelectedDate } = useSelectedDate();
     const [hydrated, setHydrated] = useState(false);
     const [isPressingClear, setIsPressingClear] = useState(false);
     const [showCalendar, setShowCalendar] = useState(false);
@@ -81,7 +82,7 @@ export default function DragDropBox() {
     };
 
     const handleDateSelect = (newDateKey: string) => {
-        setDateKey(newDateKey);
+        setSelectedDate(newDateKey);
         setDeductions([]);
         setGains([]);
         setHydrated(false);
