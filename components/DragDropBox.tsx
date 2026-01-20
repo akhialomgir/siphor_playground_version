@@ -112,7 +112,8 @@ export default function DragDropBox() {
     const [hydrated, setHydrated] = useState(false);
     const [isPressingClear, setIsPressingClear] = useState(false);
     const [showCalendar, setShowCalendar] = useState(false);
-    const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
+    const [activeGainTimerId, setActiveGainTimerId] = useState<string | null>(null);
+    const [activeDeductionTimerId, setActiveDeductionTimerId] = useState<string | null>(null);
     const [focusScore, setFocusScore] = useState<number>(0);
     const [focusTime, setFocusTime] = useState<number>(0);
     const clearTimerRef = useRef<number | null>(null);
@@ -151,10 +152,15 @@ export default function DragDropBox() {
     useEffect(() => {
         if (!hydrated) return;
         if (!editable) {
-            setActiveTimerId(null);
+            setActiveGainTimerId(null);
+            setActiveDeductionTimerId(null);
             setGains(prev => prev.map(g => g.categoryKey === 'targetGains'
                 ? { ...g, timerRunning: false, timerStartTs: null }
                 : g
+            ));
+            setDeductions(prev => prev.map(d => isTimerDeduction(d.name)
+                ? { ...d, timerRunning: false, timerStartTs: null }
+                : d
             ));
             return;
         }
@@ -162,7 +168,7 @@ export default function DragDropBox() {
         const targetGains = gains.filter(g => g.categoryKey === 'targetGains');
         const bottom = targetGains[targetGains.length - 1];
         const bottomId = bottom?.id ?? null;
-        setActiveTimerId(bottomId);
+        setActiveGainTimerId(bottomId);
 
         setGains(prev => {
             const now = Date.now();
@@ -191,13 +197,19 @@ export default function DragDropBox() {
     }, [gains, editable, hydrated]);
 
     useEffect(() => {
-        if (!editable || !activeTimerId) return;
+        if (!hydrated || !editable) return;
+        const running = [...deductions].reverse().find(d => isTimerDeduction(d.name) && d.timerRunning);
+        setActiveDeductionTimerId(running?.id ?? null);
+    }, [deductions, editable, hydrated]);
+
+    useEffect(() => {
+        if (!editable || !activeGainTimerId) return;
         const interval = window.setInterval(() => {
             setGains(prev => {
                 const now = Date.now();
                 let changed = false;
                 const next = prev.map(g => {
-                    if (g.id !== activeTimerId || g.categoryKey !== 'targetGains') return g;
+                    if (g.id !== activeGainTimerId || g.categoryKey !== 'targetGains') return g;
                     if (!g.timerRunning || !g.timerStartTs) return g;
                     const delta = Math.max(0, Math.floor((now - g.timerStartTs) / 1000));
                     if (delta <= 0) return g;
@@ -217,7 +229,7 @@ export default function DragDropBox() {
             });
         }, 1000);
         return () => window.clearInterval(interval);
-    }, [activeTimerId, editable]);
+    }, [activeGainTimerId, editable]);
 
     useEffect(() => {
         const accum = getAccumulatedTargetGainsTime(gains);
@@ -226,34 +238,15 @@ export default function DragDropBox() {
     }, [gains]);
 
     useEffect(() => {
-        if (!editable || !activeTimerId) return;
+        if (!editable || !activeDeductionTimerId) return;
 
         const interval = window.setInterval(() => {
             const now = Date.now();
 
-            // Update gains
-            setGains(prev => {
-                let changed = false;
-                const next = prev.map(g => {
-                    if (g.id !== activeTimerId || g.categoryKey !== 'targetGains') return g;
-                    if (!g.timerRunning || !g.timerStartTs) return g;
-                    const delta = Math.max(0, Math.floor((now - g.timerStartTs) / 1000));
-                    if (delta <= 0) return g;
-                    changed = true;
-                    return {
-                        ...g,
-                        timerSeconds: (g.timerSeconds ?? 0) + delta,
-                        timerStartTs: now
-                    };
-                });
-                return changed ? next : prev;
-            });
-
-            // Update deductions with timer
             setDeductions(prev => {
                 let changed = false;
                 const next = prev.map(d => {
-                    if (d.id !== activeTimerId) return d;
+                    if (d.id !== activeDeductionTimerId) return d;
                     if (!isTimerDeduction(d.name)) return d;
                     if (!d.timerRunning || !d.timerStartTs) return d;
                     const delta = Math.max(0, Math.floor((now - d.timerStartTs) / 1000));
@@ -270,7 +263,7 @@ export default function DragDropBox() {
         }, 1000);
 
         return () => window.clearInterval(interval);
-    }, [activeTimerId, editable]);
+    }, [activeDeductionTimerId, editable]);
 
     useEffect(() => {
         let mounted = true;
@@ -404,7 +397,7 @@ export default function DragDropBox() {
                     let fresh = { ...baseEntry, justAdded: true };
                     if (isTimerDeduction(baseEntry.name)) {
                         fresh = { ...fresh, timerRunning: true, timerStartTs: now };
-                        setActiveTimerId(baseEntry.id);
+                        setActiveDeductionTimerId(baseEntry.id);
                     }
 
                     setTimeout(() => {
@@ -445,64 +438,72 @@ export default function DragDropBox() {
         }
     };
 
-    const pauseTimer = (id: string) => {
-        // Handle target gains
-        setGains(prev => prev.map(g => {
-            if (g.id !== id || g.categoryKey !== 'targetGains') return g;
-            if (!g.timerRunning) return g;
-            const now = Date.now();
-            const delta = g.timerStartTs ? Math.max(0, Math.floor((now - g.timerStartTs) / 1000)) : 0;
-            return {
-                ...g,
-                timerSeconds: (g.timerSeconds ?? 0) + delta,
-                timerRunning: false,
-                timerStartTs: null,
-                timerPaused: true
-            };
-        }));
-
-        // Handle timer-based deductions
-        setDeductions(prev => prev.map(d => {
-            if (d.id !== id || !isTimerDeduction(d.name)) return d;
-            if (!d.timerRunning) return d;
-            const now = Date.now();
-            const delta = d.timerStartTs ? Math.max(0, Math.floor((now - d.timerStartTs) / 1000)) : 0;
-            return {
-                ...d,
-                timerSeconds: (d.timerSeconds ?? 0) + delta,
-                timerRunning: false,
-                timerStartTs: null,
-                timerPaused: true
-            };
-        }));
+    const pauseTimer = (id: string, timerType: 'gain' | 'deduction') => {
+        if (timerType === 'gain') {
+            setActiveGainTimerId(prev => (prev === id ? null : prev));
+            setGains(prev => prev.map(g => {
+                if (g.id !== id || g.categoryKey !== 'targetGains') return g;
+                if (!g.timerRunning) return g;
+                const now = Date.now();
+                const delta = g.timerStartTs ? Math.max(0, Math.floor((now - g.timerStartTs) / 1000)) : 0;
+                return {
+                    ...g,
+                    timerSeconds: (g.timerSeconds ?? 0) + delta,
+                    timerRunning: false,
+                    timerStartTs: null,
+                    timerPaused: true
+                };
+            }));
+        } else {
+            setActiveDeductionTimerId(prev => (prev === id ? null : prev));
+            setDeductions(prev => prev.map(d => {
+                if (d.id !== id || !isTimerDeduction(d.name)) return d;
+                if (!d.timerRunning) return d;
+                const now = Date.now();
+                const delta = d.timerStartTs ? Math.max(0, Math.floor((now - d.timerStartTs) / 1000)) : 0;
+                return {
+                    ...d,
+                    timerSeconds: (d.timerSeconds ?? 0) + delta,
+                    timerRunning: false,
+                    timerStartTs: null,
+                    timerPaused: true
+                };
+            }));
+        }
     };
 
-    const resumeTimer = (id: string) => {
-        setActiveTimerId(id);
-
-        // Handle target gains
-        setGains(prev => prev.map(g => {
-            if (g.id !== id || g.categoryKey !== 'targetGains') return g;
-            if (g.timerRunning) return g;
-            return {
-                ...g,
-                timerRunning: true,
-                timerStartTs: Date.now(),
-                timerPaused: false
-            };
-        }));
-
-        // Handle timer-based deductions
-        setDeductions(prev => prev.map(d => {
-            if (d.id !== id || !isTimerDeduction(d.name)) return d;
-            if (d.timerRunning) return d;
-            return {
-                ...d,
-                timerRunning: true,
-                timerStartTs: Date.now(),
-                timerPaused: false
-            };
-        }));
+    const resumeTimer = (id: string, timerType: 'gain' | 'deduction') => {
+        if (timerType === 'gain') {
+            setActiveGainTimerId(id);
+            setGains(prev => prev.map(g => {
+                if (g.categoryKey !== 'targetGains') return g;
+                if (g.id === id) {
+                    if (g.timerRunning) return g;
+                    return {
+                        ...g,
+                        timerRunning: true,
+                        timerStartTs: Date.now(),
+                        timerPaused: false
+                    };
+                }
+                return { ...g, timerRunning: false, timerStartTs: null, timerPaused: false };
+            }));
+        } else {
+            setActiveDeductionTimerId(id);
+            setDeductions(prev => prev.map(d => {
+                if (!isTimerDeduction(d.name)) return d;
+                if (d.id === id) {
+                    if (d.timerRunning) return d;
+                    return {
+                        ...d,
+                        timerRunning: true,
+                        timerStartTs: Date.now(),
+                        timerPaused: false
+                    };
+                }
+                return { ...d, timerRunning: false, timerStartTs: null, timerPaused: false };
+            }));
+        }
     };
 
     const sectionStyle: React.CSSProperties = {
@@ -528,7 +529,7 @@ export default function DragDropBox() {
         const score = computeScore(entry);
         const hasCriteria = !!entry.criteria && entry.criteria.length > 0;
         const isTargetGain = entry.categoryKey === 'targetGains' && entry.scoreType === 'gain';
-        const isActiveTimer = isTargetGain && activeTimerId === entry.id;
+        const isActiveTimer = isTargetGain && activeGainTimerId === entry.id;
         const timerDisplay = formatTimer(entry.timerSeconds ?? 0);
 
         // Check if this is a count-based deduction using JSON structure
@@ -630,7 +631,7 @@ export default function DragDropBox() {
                             </span>
                             {editable && entry.timerRunning && (
                                 <button
-                                    onClick={() => pauseTimer(entry.id)}
+                                    onClick={() => pauseTimer(entry.id, 'deduction')}
                                     style={{
                                         border: 'none',
                                         background: 'transparent',
@@ -646,7 +647,7 @@ export default function DragDropBox() {
                             )}
                             {editable && !entry.timerRunning && (
                                 <button
-                                    onClick={() => resumeTimer(entry.id)}
+                                    onClick={() => resumeTimer(entry.id, 'deduction')}
                                     style={{
                                         border: 'none',
                                         background: 'transparent',
@@ -681,7 +682,7 @@ export default function DragDropBox() {
                             </span>
                             {isActiveTimer && editable && entry.timerRunning && (
                                 <button
-                                    onClick={() => pauseTimer(entry.id)}
+                                    onClick={() => pauseTimer(entry.id, 'gain')}
                                     style={{
                                         border: 'none',
                                         background: 'transparent',
@@ -697,7 +698,7 @@ export default function DragDropBox() {
                             )}
                             {isActiveTimer && editable && !entry.timerRunning && (
                                 <button
-                                    onClick={() => resumeTimer(entry.id)}
+                                    onClick={() => resumeTimer(entry.id, 'gain')}
                                     style={{
                                         border: 'none',
                                         background: 'transparent',
