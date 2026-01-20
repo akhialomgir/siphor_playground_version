@@ -6,7 +6,8 @@ import { useDroppedItems } from './DroppedItemsContext';
 import { clearPersistedState, loadPersistedState, savePersistedState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
-import { getFocusScore, getFocusCriteria } from '@/lib/scoring';
+import { getFocusScore, getFocusCriteria, getDeductionScore } from '@/lib/scoring';
+import scoringData from '@/data/scoring.json';
 
 interface Criteria {
     time: number;
@@ -39,6 +40,7 @@ interface DroppedEntry {
     timerRunning?: boolean;
     timerStartTs?: number | null;
     timerPaused?: boolean;
+    count?: number; // for count-based deductions (bili, sosx)
 }
 
 const badgeBase: React.CSSProperties = {
@@ -56,6 +58,19 @@ const PtsBadge = ({ value }: { value: number }) => (
 );
 
 function computeScore(entry: DroppedEntry): number {
+    // For count-based deductions (fixed type)
+    if (entry.scoreType === 'deduction' && entry.categoryKey !== 'targetGains') {
+        const deducItem = scoringData.deductions.items.find(d => d.name === entry.name);
+        if (deducItem?.type === 'fixed') {
+            return (deducItem.score ?? 0) * (entry.count ?? 1);
+        }
+        // For timer-based deductions (duration type)
+        if (deducItem?.type === 'tiered' && deducItem.baseType === 'duration') {
+            return getDeductionScore(deducItem, entry.timerSeconds ?? 0);
+        }
+    }
+
+    // Original logic for gains
     if (entry.criteria && entry.criteria.length > 0) {
         const idx = Math.max(0, entry.selectedIndex ?? 0);
         const base = entry.criteria[idx]?.score ?? 0;
@@ -77,6 +92,17 @@ function getAccumulatedTargetGainsTime(gains: DroppedEntry[]): number {
     return gains
         .filter(g => g.categoryKey === 'targetGains')
         .reduce((acc, g) => acc + (g.timerSeconds ?? 0), 0);
+}
+
+// Helper functions to identify item types from JSON structure
+function isCountBasedDeduction(name: string): boolean {
+    const item = scoringData.deductions.items.find(d => d.name === name);
+    return item?.type === 'fixed';
+}
+
+function isTimerDeduction(name: string): boolean {
+    const item = scoringData.deductions.items.find(d => d.name === name);
+    return item?.type === 'tiered' && item.baseType === 'duration';
 }
 
 export default function DragDropBox() {
@@ -201,9 +227,12 @@ export default function DragDropBox() {
 
     useEffect(() => {
         if (!editable || !activeTimerId) return;
+
         const interval = window.setInterval(() => {
+            const now = Date.now();
+
+            // Update gains
             setGains(prev => {
-                const now = Date.now();
                 let changed = false;
                 const next = prev.map(g => {
                     if (g.id !== activeTimerId || g.categoryKey !== 'targetGains') return g;
@@ -219,7 +248,27 @@ export default function DragDropBox() {
                 });
                 return changed ? next : prev;
             });
+
+            // Update deductions with timer
+            setDeductions(prev => {
+                let changed = false;
+                const next = prev.map(d => {
+                    if (d.id !== activeTimerId) return d;
+                    if (!isTimerDeduction(d.name)) return d;
+                    if (!d.timerRunning || !d.timerStartTs) return d;
+                    const delta = Math.max(0, Math.floor((now - d.timerStartTs) / 1000));
+                    if (delta <= 0) return d;
+                    changed = true;
+                    return {
+                        ...d,
+                        timerSeconds: (d.timerSeconds ?? 0) + delta,
+                        timerStartTs: now
+                    };
+                });
+                return changed ? next : prev;
+            });
         }, 1000);
+
         return () => window.clearInterval(interval);
     }, [activeTimerId, editable]);
 
@@ -231,6 +280,25 @@ export default function DragDropBox() {
             const normalize = (list: DroppedEntry[]) => list.map(e => {
                 let entry: DroppedEntry = { ...e, justAdded: false, timerPaused: e.timerPaused ?? false };
                 if (entry.categoryKey === 'targetGains') {
+                    const baseSeconds = entry.timerSeconds ?? 0;
+                    if (entry.timerRunning && editable && entry.timerStartTs) {
+                        const delta = Math.max(0, Math.floor((now - entry.timerStartTs) / 1000));
+                        entry = {
+                            ...entry,
+                            timerSeconds: baseSeconds + delta,
+                            timerStartTs: now,
+                            timerRunning: true
+                        };
+                    } else {
+                        entry = {
+                            ...entry,
+                            timerSeconds: baseSeconds,
+                            timerStartTs: null,
+                            timerRunning: false
+                        };
+                    }
+                } else if (entry.scoreType === 'deduction' && isTimerDeduction(entry.name)) {
+                    // Handle timer-based deductions
                     const baseSeconds = entry.timerSeconds ?? 0;
                     if (entry.timerRunning && editable && entry.timerStartTs) {
                         const delta = Math.max(0, Math.floor((now - entry.timerStartTs) / 1000));
@@ -322,14 +390,23 @@ export default function DragDropBox() {
                 timerSeconds: 0,
                 timerRunning: false,
                 timerStartTs: null,
-                timerPaused: false
+                timerPaused: false,
+                count: 1 // Initialize count for count-based deductions
             };
 
             if (baseEntry.scoreType === 'deduction') {
                 setDeductions(prev => {
                     const exists = prev.some(p => p.id === baseEntry.id);
                     if (exists) return prev;
-                    const fresh = { ...baseEntry, justAdded: true };
+
+                    // For timer-based deductions (like game), auto-start the timer
+                    const now = Date.now();
+                    let fresh = { ...baseEntry, justAdded: true };
+                    if (isTimerDeduction(baseEntry.name)) {
+                        fresh = { ...fresh, timerRunning: true, timerStartTs: now };
+                        setActiveTimerId(baseEntry.id);
+                    }
+
                     setTimeout(() => {
                         setDeductions(current => current.map(p => p.id === fresh.id ? { ...p, justAdded: false } : p));
                     }, 950);
@@ -369,6 +446,7 @@ export default function DragDropBox() {
     };
 
     const pauseTimer = (id: string) => {
+        // Handle target gains
         setGains(prev => prev.map(g => {
             if (g.id !== id || g.categoryKey !== 'targetGains') return g;
             if (!g.timerRunning) return g;
@@ -382,15 +460,44 @@ export default function DragDropBox() {
                 timerPaused: true
             };
         }));
+
+        // Handle timer-based deductions
+        setDeductions(prev => prev.map(d => {
+            if (d.id !== id || !isTimerDeduction(d.name)) return d;
+            if (!d.timerRunning) return d;
+            const now = Date.now();
+            const delta = d.timerStartTs ? Math.max(0, Math.floor((now - d.timerStartTs) / 1000)) : 0;
+            return {
+                ...d,
+                timerSeconds: (d.timerSeconds ?? 0) + delta,
+                timerRunning: false,
+                timerStartTs: null,
+                timerPaused: true
+            };
+        }));
     };
 
     const resumeTimer = (id: string) => {
         setActiveTimerId(id);
+
+        // Handle target gains
         setGains(prev => prev.map(g => {
             if (g.id !== id || g.categoryKey !== 'targetGains') return g;
             if (g.timerRunning) return g;
             return {
                 ...g,
+                timerRunning: true,
+                timerStartTs: Date.now(),
+                timerPaused: false
+            };
+        }));
+
+        // Handle timer-based deductions
+        setDeductions(prev => prev.map(d => {
+            if (d.id !== id || !isTimerDeduction(d.name)) return d;
+            if (d.timerRunning) return d;
+            return {
+                ...d,
                 timerRunning: true,
                 timerStartTs: Date.now(),
                 timerPaused: false
@@ -424,6 +531,29 @@ export default function DragDropBox() {
         const isActiveTimer = isTargetGain && activeTimerId === entry.id;
         const timerDisplay = formatTimer(entry.timerSeconds ?? 0);
 
+        // Check if this is a count-based deduction using JSON structure
+        const isCountBased = entry.scoreType === 'deduction' && isCountBasedDeduction(entry.name);
+
+        // Check if this is a timer-based deduction using JSON structure
+        const isTimerBasedDeduction = entry.scoreType === 'deduction' && isTimerDeduction(entry.name);
+
+        const handleCountChange = (delta: number) => {
+            if (!editable) return;
+            const newCount = Math.max(0, (entry.count ?? 1) + delta);
+
+            // Delete if count becomes 0
+            if (newCount === 0) {
+                setDeductions(prev => prev.filter(p => p.id !== entry.id));
+                return;
+            }
+
+            setDeductions(prev => prev.map(p =>
+                p.id === entry.id
+                    ? { ...p, count: newCount }
+                    : p
+            ));
+        };
+
         return (
             <div
                 key={`${list}-${entry.id}`}
@@ -433,6 +563,107 @@ export default function DragDropBox() {
                 <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>{entry.name}</span>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Count buttons for count-based deductions */}
+                    {isCountBased && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <button
+                                onClick={() => handleCountChange(-1)}
+                                disabled={!editable || (entry.count ?? 1) <= 1}
+                                style={{
+                                    border: '1px solid #475569',
+                                    background: editable && (entry.count ?? 1) > 1 ? '#1f2937' : '#111827',
+                                    color: editable && (entry.count ?? 1) > 1 ? '#94a3b8' : '#64748b',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    cursor: editable && (entry.count ?? 1) > 1 ? 'pointer' : 'not-allowed',
+                                    fontSize: '12px',
+                                    fontWeight: 500
+                                }}
+                                aria-label="Decrease count"
+                            >
+                                −
+                            </button>
+                            <span style={{
+                                minWidth: '20px',
+                                textAlign: 'center',
+                                fontSize: '12px',
+                                fontWeight: 500,
+                                color: '#cbd5e1'
+                            }}>
+                                {entry.count ?? 1}
+                            </span>
+                            <button
+                                onClick={() => handleCountChange(1)}
+                                disabled={!editable}
+                                style={{
+                                    border: '1px solid #475569',
+                                    background: editable ? '#1f2937' : '#111827',
+                                    color: editable ? '#94a3b8' : '#64748b',
+                                    padding: '2px 6px',
+                                    borderRadius: '4px',
+                                    cursor: editable ? 'pointer' : 'not-allowed',
+                                    fontSize: '12px',
+                                    fontWeight: 500
+                                }}
+                                aria-label="Increase count"
+                            >
+                                +
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Timer UI for timer-based deductions (game) */}
+                    {isTimerBasedDeduction && (
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #1f2937',
+                            background: '#111827',
+                            color: '#94a3b8',
+                            fontSize: '12px'
+                        }}>
+                            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                {timerDisplay}
+                            </span>
+                            {editable && entry.timerRunning && (
+                                <button
+                                    onClick={() => pauseTimer(entry.id)}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#e5e7eb',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        lineHeight: 1
+                                    }}
+                                    aria-label="Pause timer"
+                                >
+                                    ⏸
+                                </button>
+                            )}
+                            {editable && !entry.timerRunning && (
+                                <button
+                                    onClick={() => resumeTimer(entry.id)}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#e5e7eb',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        lineHeight: 1
+                                    }}
+                                    aria-label="Resume timer"
+                                >
+                                    ▶
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Timer UI for target gains */}
                     {isTargetGain && (
                         <div style={{
                             display: 'inline-flex',
@@ -482,6 +713,8 @@ export default function DragDropBox() {
                             )}
                         </div>
                     )}
+
+                    {/* Bonus toggle for target gains */}
                     {isTargetGain && (
                         <button
                             onClick={() => {
@@ -508,7 +741,9 @@ export default function DragDropBox() {
                             {entry.bonusActive ? '✕' : '+10'}
                         </button>
                     )}
-                    {hasCriteria ? (
+
+                    {/* Criteria select for gains with criteria */}
+                    {hasCriteria && entry.scoreType === 'gain' ? (
                         <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                             <select
                                 value={entry.selectedIndex ?? 0}
@@ -546,6 +781,8 @@ export default function DragDropBox() {
                     ) : (
                         <PtsBadge value={score} />
                     )}
+
+                    {/* Remove button */}
                     <button
                         onClick={() => {
                             if (!editable) return;

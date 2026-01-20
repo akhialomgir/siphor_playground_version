@@ -17,6 +17,7 @@ export interface PersistedEntry {
     timerRunning?: boolean;
     timerStartTs?: number | null;
     timerPaused?: boolean;
+    count?: number; // for count-based deductions
 }
 
 export type PersistedState = { deductions: PersistedEntry[]; gains: PersistedEntry[] };
