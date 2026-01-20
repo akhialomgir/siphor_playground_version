@@ -13,6 +13,10 @@ export interface PersistedEntry {
     categoryKey?: string;
     bonusActive?: boolean;
     justAdded?: boolean;
+    timerSeconds?: number;
+    timerRunning?: boolean;
+    timerStartTs?: number | null;
+    timerPaused?: boolean;
 }
 
 export type PersistedState = { deductions: PersistedEntry[]; gains: PersistedEntry[] };

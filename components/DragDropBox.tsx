@@ -34,6 +34,10 @@ interface DroppedEntry {
     categoryKey?: string;
     bonusActive?: boolean; // for targetGains bonus toggle
     justAdded?: boolean;
+    timerSeconds?: number;
+    timerRunning?: boolean;
+    timerStartTs?: number | null;
+    timerPaused?: boolean;
 }
 
 const badgeBase: React.CSSProperties = {
@@ -60,6 +64,14 @@ function computeScore(entry: DroppedEntry): number {
     return base + (entry.bonusActive ? 10 : 0);
 }
 
+function formatTimer(seconds: number): string {
+    const total = Math.max(0, Math.floor(seconds));
+    const hrs = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
 export default function DragDropBox() {
     const [deductions, setDeductions] = useState<DroppedEntry[]>([]);
     const [gains, setGains] = useState<DroppedEntry[]>([]);
@@ -67,6 +79,7 @@ export default function DragDropBox() {
     const [hydrated, setHydrated] = useState(false);
     const [isPressingClear, setIsPressingClear] = useState(false);
     const [showCalendar, setShowCalendar] = useState(false);
+    const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
     const clearTimerRef = useRef<number | null>(null);
     const { replaceAll } = useDroppedItems();
 
@@ -101,10 +114,99 @@ export default function DragDropBox() {
     }, [deductions, gains, replaceAll]);
 
     useEffect(() => {
+        if (!hydrated) return;
+        if (!editable) {
+            setActiveTimerId(null);
+            setGains(prev => prev.map(g => g.categoryKey === 'targetGains'
+                ? { ...g, timerRunning: false, timerStartTs: null }
+                : g
+            ));
+            return;
+        }
+
+        const targetGains = gains.filter(g => g.categoryKey === 'targetGains');
+        const bottom = targetGains[targetGains.length - 1];
+        const bottomId = bottom?.id ?? null;
+        setActiveTimerId(bottomId);
+
+        setGains(prev => {
+            const now = Date.now();
+            let changed = false;
+            const next = prev.map(g => {
+                if (g.categoryKey !== 'targetGains') return g;
+                if (g.id === bottomId) {
+                    if (g.timerRunning && !g.timerStartTs) {
+                        changed = true;
+                        return { ...g, timerStartTs: now };
+                    }
+                    if (!g.timerRunning && !g.timerPaused) {
+                        changed = true;
+                        return { ...g, timerRunning: true, timerStartTs: now };
+                    }
+                    return g;
+                }
+                if (g.timerRunning || g.timerStartTs || g.timerPaused) {
+                    changed = true;
+                    return { ...g, timerRunning: false, timerStartTs: null, timerPaused: false };
+                }
+                return g;
+            });
+            return changed ? next : prev;
+        });
+    }, [gains, editable, hydrated]);
+
+    useEffect(() => {
+        if (!editable || !activeTimerId) return;
+        const interval = window.setInterval(() => {
+            setGains(prev => {
+                const now = Date.now();
+                let changed = false;
+                const next = prev.map(g => {
+                    if (g.id !== activeTimerId || g.categoryKey !== 'targetGains') return g;
+                    if (!g.timerRunning || !g.timerStartTs) return g;
+                    const delta = Math.max(0, Math.floor((now - g.timerStartTs) / 1000));
+                    if (delta <= 0) return g;
+                    changed = true;
+                    return {
+                        ...g,
+                        timerSeconds: (g.timerSeconds ?? 0) + delta,
+                        timerStartTs: now
+                    };
+                });
+                return changed ? next : prev;
+            });
+        }, 1000);
+        return () => window.clearInterval(interval);
+    }, [activeTimerId, editable]);
+
+    useEffect(() => {
         let mounted = true;
         loadPersistedState(dateKey).then(state => {
             if (!mounted) return;
-            const normalize = (list: DroppedEntry[]) => list.map(e => ({ ...e, justAdded: false }));
+            const now = Date.now();
+            const normalize = (list: DroppedEntry[]) => list.map(e => {
+                let entry: DroppedEntry = { ...e, justAdded: false, timerPaused: e.timerPaused ?? false };
+                if (entry.categoryKey === 'targetGains') {
+                    const baseSeconds = entry.timerSeconds ?? 0;
+                    if (entry.timerRunning && editable && entry.timerStartTs) {
+                        const delta = Math.max(0, Math.floor((now - entry.timerStartTs) / 1000));
+                        entry = {
+                            ...entry,
+                            timerSeconds: baseSeconds + delta,
+                            timerStartTs: now,
+                            timerRunning: true
+                        };
+                    } else {
+                        entry = {
+                            ...entry,
+                            timerSeconds: baseSeconds,
+                            timerStartTs: null,
+                            timerRunning: false
+                        };
+                    }
+                }
+                return entry;
+            });
             setDeductions(normalize(state.deductions ?? []));
             setGains(normalize(state.gains ?? []));
             setHydrated(true);
@@ -114,7 +216,7 @@ export default function DragDropBox() {
         return () => {
             mounted = false;
         };
-    }, [dateKey]);
+    }, [dateKey, editable]);
 
     useEffect(() => {
         if (!hydrated || !dateKey) return;
@@ -163,7 +265,7 @@ export default function DragDropBox() {
 
         try {
             const payload: DroppedPayload = JSON.parse(data);
-            const entry: DroppedEntry = {
+            const baseEntry: DroppedEntry = {
                 id: payload.id,
                 name: payload.name,
                 scoreType: payload.scoreType,
@@ -172,14 +274,18 @@ export default function DragDropBox() {
                 fixedScore: payload.score,
                 selectedIndex: 0,
                 categoryKey: payload.categoryKey,
-                bonusActive: false
+                bonusActive: false,
+                timerSeconds: 0,
+                timerRunning: false,
+                timerStartTs: null,
+                timerPaused: false
             };
 
-            if (entry.scoreType === 'deduction') {
+            if (baseEntry.scoreType === 'deduction') {
                 setDeductions(prev => {
-                    const exists = prev.some(p => p.id === entry.id);
+                    const exists = prev.some(p => p.id === baseEntry.id);
                     if (exists) return prev;
-                    const fresh = { ...entry, justAdded: true };
+                    const fresh = { ...baseEntry, justAdded: true };
                     setTimeout(() => {
                         setDeductions(current => current.map(p => p.id === fresh.id ? { ...p, justAdded: false } : p));
                     }, 950);
@@ -187,13 +293,18 @@ export default function DragDropBox() {
                 });
             } else {
                 setGains(prev => {
-                    const exists = prev.some(p => p.id === entry.id);
+                    const exists = prev.some(p => p.id === baseEntry.id);
                     if (exists) return prev;
-                    const fresh = { ...entry, justAdded: true };
+                    const now = Date.now();
+                    const fresh = { ...baseEntry, justAdded: true, timerRunning: true, timerStartTs: now };
+                    const next = [...prev.map(g => g.categoryKey === 'targetGains'
+                        ? { ...g, timerRunning: false, timerStartTs: null, timerPaused: false }
+                        : g
+                    ), fresh];
                     setTimeout(() => {
                         setGains(current => current.map(p => p.id === fresh.id ? { ...p, justAdded: false } : p));
                     }, 950);
-                    return [...prev, fresh];
+                    return next;
                 });
             }
         } catch (err) {
@@ -211,6 +322,36 @@ export default function DragDropBox() {
         } else {
             setGains(prev => prev.map(p => (p.id === id ? { ...p, selectedIndex: idx } : p)));
         }
+    };
+
+    const pauseTimer = (id: string) => {
+        setGains(prev => prev.map(g => {
+            if (g.id !== id || g.categoryKey !== 'targetGains') return g;
+            if (!g.timerRunning) return g;
+            const now = Date.now();
+            const delta = g.timerStartTs ? Math.max(0, Math.floor((now - g.timerStartTs) / 1000)) : 0;
+            return {
+                ...g,
+                timerSeconds: (g.timerSeconds ?? 0) + delta,
+                timerRunning: false,
+                timerStartTs: null,
+                timerPaused: true
+            };
+        }));
+    };
+
+    const resumeTimer = (id: string) => {
+        setActiveTimerId(id);
+        setGains(prev => prev.map(g => {
+            if (g.id !== id || g.categoryKey !== 'targetGains') return g;
+            if (g.timerRunning) return g;
+            return {
+                ...g,
+                timerRunning: true,
+                timerStartTs: Date.now(),
+                timerPaused: false
+            };
+        }));
     };
 
     const sectionStyle: React.CSSProperties = {
@@ -236,6 +377,7 @@ export default function DragDropBox() {
         const score = computeScore(entry);
         const hasCriteria = !!entry.criteria && entry.criteria.length > 0;
         const isTargetGain = entry.categoryKey === 'targetGains' && entry.scoreType === 'gain';
+        const isActiveTimer = isTargetGain && activeTimerId === entry.id;
 
         return (
             <div
@@ -246,6 +388,58 @@ export default function DragDropBox() {
                 <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>{entry.name}</span>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {isActiveTimer && (
+                        <div style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #1f2937',
+                            background: '#0b1220',
+                            color: '#e5e7eb',
+                            fontSize: '12px'
+                        }}>
+                            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                {formatTimer(entry.timerSeconds ?? 0)}
+                            </span>
+                            {editable && entry.timerRunning && (
+                                <button
+                                    onClick={() => pauseTimer(entry.id)}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#e5e7eb',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        lineHeight: 1
+                                    }}
+                                    aria-label="Pause timer"
+                                >
+                                    ⏸
+                                </button>
+                            )}
+                            {editable && !entry.timerRunning && (
+                                <button
+                                    onClick={() => resumeTimer(entry.id)}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#e5e7eb',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        lineHeight: 1
+                                    }}
+                                    aria-label="Resume timer"
+                                >
+                                    ▶
+                                </button>
+                            )}
+                            {!editable && (
+                                <span style={{ color: '#94a3b8' }}>⏸</span>
+                            )}
+                        </div>
+                    )}
                     {isTargetGain && (
                         <button
                             onClick={() => {
