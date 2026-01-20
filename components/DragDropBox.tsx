@@ -139,9 +139,9 @@ export default function DragDropBox() {
                         changed = true;
                         return { ...g, timerStartTs: now };
                     }
-                    if (!g.timerRunning && !g.timerPaused) {
+                    if (g.timerRunning === false && g.timerStartTs) {
                         changed = true;
-                        return { ...g, timerRunning: true, timerStartTs: now };
+                        return { ...g, timerStartTs: null };
                     }
                     return g;
                 }
@@ -378,6 +378,7 @@ export default function DragDropBox() {
         const hasCriteria = !!entry.criteria && entry.criteria.length > 0;
         const isTargetGain = entry.categoryKey === 'targetGains' && entry.scoreType === 'gain';
         const isActiveTimer = isTargetGain && activeTimerId === entry.id;
+        const timerDisplay = formatTimer(entry.timerSeconds ?? 0);
 
         return (
             <div
@@ -388,22 +389,22 @@ export default function DragDropBox() {
                 <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>{entry.name}</span>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {isActiveTimer && (
+                    {isTargetGain && (
                         <div style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
                             padding: '4px 8px',
                             borderRadius: '6px',
-                            border: '1px solid #1f2937',
-                            background: '#0b1220',
-                            color: '#e5e7eb',
+                            border: isActiveTimer ? '1px solid #1f2937' : '1px solid #1f2937',
+                            background: isActiveTimer ? '#0b1220' : '#111827',
+                            color: isActiveTimer ? '#e5e7eb' : '#94a3b8',
                             fontSize: '12px'
                         }}>
                             <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                                {formatTimer(entry.timerSeconds ?? 0)}
+                                {timerDisplay}
                             </span>
-                            {editable && entry.timerRunning && (
+                            {isActiveTimer && editable && entry.timerRunning && (
                                 <button
                                     onClick={() => pauseTimer(entry.id)}
                                     style={{
@@ -419,7 +420,7 @@ export default function DragDropBox() {
                                     ⏸
                                 </button>
                             )}
-                            {editable && !entry.timerRunning && (
+                            {isActiveTimer && editable && !entry.timerRunning && (
                                 <button
                                     onClick={() => resumeTimer(entry.id)}
                                     style={{
@@ -434,9 +435,6 @@ export default function DragDropBox() {
                                 >
                                     ▶
                                 </button>
-                            )}
-                            {!editable && (
-                                <span style={{ color: '#94a3b8' }}>⏸</span>
                             )}
                         </div>
                     )}
