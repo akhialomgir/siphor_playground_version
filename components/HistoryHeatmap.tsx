@@ -10,6 +10,10 @@ interface DayTile {
     isFuture: boolean;
 }
 
+interface HistoryHeatmapProps {
+    onDateSelect?: (dateKey: string) => void;
+}
+
 function computeEntryScore(entry: PersistedEntry): number {
     if (entry.criteria && entry.criteria.length > 0) {
         const idx = Math.max(0, entry.selectedIndex ?? 0);
@@ -29,7 +33,7 @@ function computeTotal(state: PersistedState): number {
 const TOTAL_WEEKS = 12; // 12 weeks display
 const FUTURE_WEEKS = 2; // grey extension into future
 
-export default function HistoryHeatmap() {
+export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
     const [tiles, setTiles] = useState<DayTile[]>([]);
 
     useEffect(() => {
@@ -83,6 +87,13 @@ export default function HistoryHeatmap() {
                     key={tile.dateKey}
                     className={getTileClass(tile)}
                     title={`${tile.dateKey} · ${tile.score} pts${tile.isFuture ? ' · upcoming' : ''}`}
+                    onClick={() => !tile.isFuture && onDateSelect?.(tile.dateKey)}
+                    role={tile.isFuture ? undefined : "button"}
+                    tabIndex={tile.isFuture ? undefined : 0}
+                    style={{
+                        cursor: tile.isFuture ? 'default' : 'pointer',
+                        transition: 'all 120ms ease'
+                    }}
                 />
             ))}
         </div>

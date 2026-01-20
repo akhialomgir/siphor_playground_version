@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
 import { clearPersistedState, loadPersistedState, savePersistedState } from './dropStorage';
+import Calendar from './Calendar';
 
 interface Criteria {
     time: number;
@@ -64,6 +65,7 @@ export default function DragDropBox() {
     const [dateKey, setDateKey] = useState<string>(() => new Date().toISOString().slice(0, 10));
     const [hydrated, setHydrated] = useState(false);
     const [isPressingClear, setIsPressingClear] = useState(false);
+    const [showCalendar, setShowCalendar] = useState(false);
     const clearTimerRef = useRef<number | null>(null);
     const { replaceAll } = useDroppedItems();
 
@@ -73,17 +75,21 @@ export default function DragDropBox() {
         return `${y}-${m}-${d}`;
     };
 
-    const ensureTodayKey = () => {
-        const today = new Date();
-        const key = today.toISOString().slice(0, 10); // YYYY-MM-DD
-        const changed = key !== dateKey;
-        if (changed) {
-            setDateKey(key);
-            setDeductions([]);
-            setGains([]);
-            setHydrated(false);
-        }
-        return { key, changed };
+    const isToday = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        return dateKey === today;
+    };
+
+    const handleDateSelect = (newDateKey: string) => {
+        setDateKey(newDateKey);
+        setDeductions([]);
+        setGains([]);
+        setHydrated(false);
+    };
+
+    const handleReturnToToday = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        handleDateSelect(today);
     };
 
     useEffect(() => {
@@ -142,11 +148,6 @@ export default function DragDropBox() {
 
     const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
-        const { key: todayKey, changed } = ensureTodayKey();
-        if (changed) {
-            // wait for new day hydration, ask user to drop again
-            return;
-        }
         let data = e.dataTransfer.getData('application/json');
         if (!data) {
             // Fallback to text/plain if needed
@@ -328,8 +329,47 @@ export default function DragDropBox() {
     return (
         <div className={styles.section} style={sectionStyle} onDragOver={allowDrop} onDrop={onDrop}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <div className={styles.dateChip}>{formatDate(dateKey) || '—'}</div>
-                <div style={{ color: '#94a3b8', fontSize: '12px' }}>daily record</div>
+                <div
+                    className={styles.dateChip}
+                    onClick={() => setShowCalendar(true)}
+                    style={{ cursor: 'pointer' }}
+                    role="button"
+                    tabIndex={0}
+                    title="Click to select date"
+                >
+                    {formatDate(dateKey) || '—'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {!isToday() && (
+                        <button
+                            onClick={handleReturnToToday}
+                            style={{
+                                background: 'transparent',
+                                border: '1px solid #334155',
+                                color: '#94a3b8',
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                transition: 'all 120ms ease'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)';
+                                e.currentTarget.style.color = '#3b82f6';
+                                e.currentTarget.style.borderColor = '#3b82f6';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'transparent';
+                                e.currentTarget.style.color = '#94a3b8';
+                                e.currentTarget.style.borderColor = '#334155';
+                            }}
+                            aria-label="Return to today"
+                        >
+                            current
+                        </button>
+                    )}
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>daily record</div>
+                </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr', gap: '16px' }}>
@@ -369,6 +409,14 @@ export default function DragDropBox() {
             >
                 Clear
             </button>
+
+            {showCalendar && (
+                <Calendar
+                    selectedDate={dateKey}
+                    onDateSelect={handleDateSelect}
+                    onClose={() => setShowCalendar(false)}
+                />
+            )}
         </div>
     );
 }

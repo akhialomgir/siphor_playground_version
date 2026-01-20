@@ -15,6 +15,12 @@
     font-size: 12px;
     letter-spacing: 0.02em;
     box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+    transition: all 120ms ease;
+}
+
+.dateChip:hover {
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.25), rgba(59, 130, 246, 0.18));
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.4);
 }
 
 .entry {
