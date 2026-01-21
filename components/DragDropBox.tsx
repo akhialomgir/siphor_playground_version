@@ -267,7 +267,14 @@ export default function DragDropBox() {
 
     useEffect(() => {
         let mounted = true;
-        loadPersistedState(dateKey).then(state => {
+        
+        // Initialize with today's date if dateKey is empty
+        let targetDateKey = dateKey;
+        if (!targetDateKey) {
+            targetDateKey = new Date().toISOString().slice(0, 10);
+        }
+        
+        loadPersistedState(targetDateKey).then(state => {
             if (!mounted) return;
             const now = Date.now();
             const normalize = (list: DroppedEntry[]) => list.map(e => {
@@ -315,7 +322,8 @@ export default function DragDropBox() {
             setDeductions(normalize(state.deductions ?? []));
             setGains(normalize(state.gains ?? []));
             setHydrated(true);
-        }).catch(() => {
+        }).catch(err => {
+            console.error('Failed to load persisted state:', err);
             setHydrated(true);
         });
         return () => {
