@@ -76,6 +76,12 @@ export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
 
     const getTileClass = (tile: DayTile) => {
         if (tile.isFuture) return `${styles.tile} ${styles.tileFuture}`;
+        if (tile.score < 0) {
+            if (tile.score <= -100) return `${styles.tile} ${styles.tileNegative3}`;
+            if (tile.score <= -50) return `${styles.tile} ${styles.tileNegative2}`;
+            if (tile.score <= -25) return `${styles.tile} ${styles.tileNegative1}`;
+            return `${styles.tile} ${styles.tileNegativeLight}`;
+        }
         if (tile.score >= 100) return `${styles.tile} ${styles.tileLevel3}`;
         if (tile.score >= 50) return `${styles.tile} ${styles.tileLevel2}`;
         if (tile.score >= 25) return `${styles.tile} ${styles.tileLevel1}`;
