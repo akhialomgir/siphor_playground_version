@@ -4,6 +4,9 @@ import React, { useEffect, useState } from 'react';
 import styles from './HistoryHeatmap.module.css';
 import { listAllStates, PersistedEntry, PersistedState } from './dropStorage';
 import { useSelectedDate } from './DateContext';
+import { useDroppedItems } from './DroppedItemsContext';
+import { getDeductionScore } from '@/lib/scoring';
+import scoringData from '@/data/scoring.json';
 
 interface DayTile {
     dateKey: string;
@@ -16,6 +19,19 @@ interface HistoryHeatmapProps {
 }
 
 function computeEntryScore(entry: PersistedEntry): number {
+    // For count-based deductions (fixed type)
+    if (entry.scoreType === 'deduction' && entry.categoryKey !== 'targetGains') {
+        const deducItem = scoringData.deductions.items.find(d => d.name === entry.name);
+        if (deducItem?.type === 'fixed') {
+            return (deducItem.score ?? 0) * (entry.count ?? 1);
+        }
+        // For timer-based deductions (duration type)
+        if (deducItem?.type === 'tiered' && deducItem.baseType === 'duration') {
+            return getDeductionScore(deducItem, entry.timerSeconds ?? 0);
+        }
+    }
+
+    // Original logic for gains
     if (entry.criteria && entry.criteria.length > 0) {
         const idx = Math.max(0, entry.selectedIndex ?? 0);
         const base = entry.criteria[idx]?.score ?? 0;
@@ -37,6 +53,10 @@ const FUTURE_WEEKS = 2; // grey extension into future
 export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
     const [tiles, setTiles] = useState<DayTile[]>([]);
     const { setSelectedDate } = useSelectedDate();
+    const { selectedIds } = useDroppedItems();
+
+    // Convert Set to array to avoid React warning about dependency array size changes
+    const selectedIdsArray = Array.from(selectedIds);
 
     useEffect(() => {
         let mounted = true;
@@ -83,7 +103,7 @@ export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
         return () => {
             mounted = false;
         };
-    }, []);
+    }, [selectedIdsArray.length]);
 
 
 
