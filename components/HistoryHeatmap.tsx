@@ -51,18 +51,31 @@ export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
                 scoreMap.set(dateKey, computeTotal(state));
             });
 
+            // Find the starting point (Sunday of the first week to display)
+            const startDate = new Date(today);
+            startDate.setDate(today.getDate() - (totalDays - futureDays - 1));
+            const startDayOfWeek = startDate.getDay(); // 0 = Sunday, 6 = Saturday
+            startDate.setDate(startDate.getDate() - startDayOfWeek); // Move to Sunday
+
+            // Calculate total weeks to display
+            const endDate = new Date(today);
+            endDate.setDate(today.getDate() + futureDays);
+            const totalWeeks = Math.ceil((endDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000));
+
+            // Build tiles organized by week (column-major order: Sunday to Saturday)
             const days: DayTile[] = [];
-            for (let i = totalDays - futureDays - 1; i >= 0; i -= 1) {
-                const date = new Date(today);
-                date.setDate(today.getDate() - i);
-                const key = date.toISOString().slice(0, 10);
-                days.push({ dateKey: key, score: scoreMap.get(key) ?? 0, isFuture: false });
-            }
-            for (let i = 1; i <= futureDays; i += 1) {
-                const date = new Date(today);
-                date.setDate(today.getDate() + i);
-                const key = date.toISOString().slice(0, 10);
-                days.push({ dateKey: key, score: 0, isFuture: true });
+            for (let week = 0; week < totalWeeks; week++) {
+                for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+                    const date = new Date(startDate);
+                    date.setDate(startDate.getDate() + week * 7 + dayOfWeek);
+                    const key = date.toISOString().slice(0, 10);
+                    const isFuture = date > today;
+                    days.push({
+                        dateKey: key,
+                        score: isFuture ? 0 : (scoreMap.get(key) ?? 0),
+                        isFuture
+                    });
+                }
             }
             setTiles(days);
         });
