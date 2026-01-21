@@ -267,13 +267,13 @@ export default function DragDropBox() {
 
     useEffect(() => {
         let mounted = true;
-        
+
         // Initialize with today's date if dateKey is empty
         let targetDateKey = dateKey;
         if (!targetDateKey) {
             targetDateKey = new Date().toISOString().slice(0, 10);
         }
-        
+
         loadPersistedState(targetDateKey).then(state => {
             if (!mounted) return;
             const now = Date.now();
