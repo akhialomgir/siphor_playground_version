@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
-import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, type WeeklyGoalsState } from './dropStorage';
+import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, getTotalScoreUpToDate, type WeeklyGoalsState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
 import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals, type ScoringItem } from '@/lib/scoring';
@@ -72,11 +72,11 @@ function computeScore(entry: DroppedEntry): number {
     if (entry.scoreType === 'deduction' && entry.categoryKey !== 'targetGains') {
         const deducItem = scoringData.deductions.items.find(d => d.name === entry.name);
         if (deducItem?.type === 'fixed') {
-            return (deducItem.score ?? 0) * (entry.count ?? 1);
+            return -Math.abs((deducItem.score ?? 0) * (entry.count ?? 1));
         }
         // For timer-based deductions (duration type)
         if (deducItem?.type === 'tiered' && deducItem.baseType === 'duration') {
-            return getDeductionScore(deducItem as ScoringItem, entry.timerSeconds ?? 0);
+            return -Math.abs(getDeductionScore(deducItem as ScoringItem, entry.timerSeconds ?? 0));
         }
     }
 
@@ -133,6 +133,7 @@ export default function DragDropBox() {
     const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
     const [weekKey, setWeekKey] = useState<string>(() => getWeekKey(new Date().toISOString().slice(0, 10)));
     const [weeklyGoalsState, setWeeklyGoalsState] = useState<WeeklyGoalsState>({ goals: {} });
+    const [totalScore, setTotalScore] = useState<number>(0);
     const clearTimerRef = useRef<number | null>(null);
     const notifyUpdateRef = useRef<(() => void) | null>(null);
     const replaceAllRef = useRef<((ids: string[]) => void) | null>(null);
@@ -177,6 +178,13 @@ export default function DragDropBox() {
             setWeeklyGoalsState(state);
         }).catch(() => {
             setWeeklyGoalsState({ goals: {} });
+        });
+
+        // Load total score up to yesterday
+        getTotalScoreUpToDate(dateKey || today).then(total => {
+            setTotalScore(total);
+        }).catch(() => {
+            setTotalScore(0);
         });
     }, [dateKey]);
 
@@ -1458,11 +1466,21 @@ export default function DragDropBox() {
                 </div>
             </div>
 
-            <div style={{ marginTop: '12px', borderTop: '1px solid #1f2937', paddingTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ marginTop: '12px', borderTop: '1px solid #1f2937', paddingTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                 <span style={{ color: '#94a3b8', fontSize: '12px' }}>Total</span>
-                <PtsBadge value={
-                    (gains.reduce((acc, e) => acc + computeScore(e), 0)) - (deductions.reduce((acc, e) => acc + computeScore(e), 0))
-                } />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <PtsBadge value={totalScore} />
+                    <span style={{
+                        color: '#64748b',
+                        fontSize: '11px',
+                        fontWeight: 500
+                    }}>
+                        {(() => {
+                            const dayScore = (gains.reduce((acc, e) => acc + computeScore(e), 0)) + (deductions.reduce((acc, e) => acc + computeScore(e), 0));
+                            return dayScore >= 0 ? `+${dayScore}` : `${dayScore}`;
+                        })()} pts
+                    </span>
+                </div>
             </div>
 
             <button

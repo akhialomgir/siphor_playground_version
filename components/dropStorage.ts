@@ -1,7 +1,8 @@
 const DB_NAME = 'dragDropBox';
 const STORE_NAME = 'entries';
 const WEEKLY_STORE_NAME = 'weeklyGoals';
-const DB_VERSION = 2;
+const TOTAL_SCORE_STORE_NAME = 'totalScores';
+const DB_VERSION = 3;
 
 import type { ScoringCriteria } from '@/lib/scoring';
 
@@ -38,6 +39,9 @@ export interface WeeklyGoalsState {
     goals: Record<string, WeeklyGoalProgress>;
 }
 
+// Total score accumulation history: { dateKey: cumulativeTotal }
+export type TotalScoreHistory = Record<string, number>;
+
 function openDb(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
         if (typeof window === 'undefined' || !window.indexedDB) {
@@ -53,6 +57,9 @@ function openDb(): Promise<IDBDatabase> {
             }
             if (oldVersion < 2 && !db.objectStoreNames.contains(WEEKLY_STORE_NAME)) {
                 db.createObjectStore(WEEKLY_STORE_NAME);
+            }
+            if (oldVersion < 3 && !db.objectStoreNames.contains(TOTAL_SCORE_STORE_NAME)) {
+                db.createObjectStore(TOTAL_SCORE_STORE_NAME);
             }
         };
         request.onsuccess = () => resolve(request.result);
@@ -253,4 +260,156 @@ export async function importAllData(importData: ExportData): Promise<void> {
             req.onerror = () => reject(req.error ?? new Error('Write failed'));
         });
     }
+}
+// Load total score history
+const TOTAL_SCORE_KEY = 'history';
+
+export async function loadTotalScoreHistory(): Promise<TotalScoreHistory> {
+    try {
+        const db = await openDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(TOTAL_SCORE_STORE_NAME, 'readonly');
+            const store = tx.objectStore(TOTAL_SCORE_STORE_NAME);
+            const req = store.get(TOTAL_SCORE_KEY);
+            req.onsuccess = () => {
+                const payload = (req.result as TotalScoreHistory | undefined) ?? {};
+                resolve(payload);
+            };
+            req.onerror = () => reject(req.error ?? new Error('Read failed'));
+        });
+    } catch (err) {
+        return {};
+    }
+}
+
+// Save total score history
+export async function saveTotalScoreHistory(history: TotalScoreHistory): Promise<void> {
+    try {
+        const db = await openDb();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(TOTAL_SCORE_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(TOTAL_SCORE_STORE_NAME);
+            const req = store.put(history, TOTAL_SCORE_KEY);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error ?? new Error('Write failed'));
+        });
+    } catch (err) {
+        // ignore persistence errors
+    }
+}
+
+// Calculate total score for a specific date from stored data
+function calculateDayScore(state: PersistedState): number {
+    const deductionScore = state.deductions.reduce((sum, entry) => {
+        // Use the same logic as computeScore in DragDropBox
+        if (entry.scoreType !== 'deduction') return sum;
+
+        // Custom expense - should be negative
+        if (entry.customScore !== undefined) {
+            return sum - Math.abs(entry.customScore ?? 0);
+        }
+
+        // Count-based or other deduction types - should be negative
+        if (entry.fixedScore !== undefined) {
+            return sum - Math.abs(entry.fixedScore * (entry.count ?? 1));
+        }
+
+        return sum;
+    }, 0);
+
+    const gainScore = state.gains.reduce((sum, entry) => {
+        if (entry.scoreType !== 'gain') return sum;
+
+        // With criteria
+        if (entry.criteria && entry.criteria.length > 0) {
+            const idx = Math.max(0, entry.selectedIndex ?? 0);
+            const base = entry.criteria[idx]?.score ?? 0;
+            return sum + base + (entry.bonusActive ? 10 : 0);
+        }
+
+        // Fixed score
+        const base = entry.fixedScore ?? 0;
+        return sum + base + (entry.bonusActive ? 10 : 0);
+    }, 0);
+
+    return gainScore + deductionScore;
+}
+
+// Initialize total score history from existing data
+export async function initializeTotalScoreHistory(): Promise<TotalScoreHistory> {
+    const allStates = await listAllStates();
+    if (allStates.length === 0) {
+        return { '1970-01-01': 0 };
+    }
+
+    // Sort by date
+    const sorted = allStates.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+
+    const history: TotalScoreHistory = { '1970-01-01': 0 };
+    let cumulative = 0;
+
+    for (const { dateKey, state } of sorted) {
+        const dayScore = calculateDayScore(state);
+        cumulative += dayScore;
+        history[dateKey] = cumulative;
+    }
+
+    await saveTotalScoreHistory(history);
+    return history;
+}
+
+// Get total score up to a specific date (yesterday)
+export async function getTotalScoreUpToDate(dateKey: string): Promise<number> {
+    const history = await loadTotalScoreHistory();
+
+    // If history is empty or only has initial value, initialize it
+    if (Object.keys(history).length <= 1) {
+        const initialized = await initializeTotalScoreHistory();
+        return getTotalFromHistory(initialized, dateKey);
+    }
+
+    return getTotalFromHistory(history, dateKey);
+}
+
+function getTotalFromHistory(history: TotalScoreHistory, dateKey: string): number {
+    // Get the date before the given date
+    const currentDate = new Date(dateKey);
+    const yesterday = new Date(currentDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().slice(0, 10);
+
+    // If we have exact match for yesterday, return it
+    if (history[yesterdayKey] !== undefined) {
+        return history[yesterdayKey];
+    }
+
+    // Otherwise, find the most recent date before yesterday
+    const dates = Object.keys(history).sort();
+    let lastTotal = 0;
+
+    for (const date of dates) {
+        if (date <= yesterdayKey) {
+            lastTotal = history[date];
+        } else {
+            break;
+        }
+    }
+
+    return lastTotal;
+}
+
+// Update total score history when a day changes
+export async function updateTotalScoreForDate(dateKey: string, dayScore: number): Promise<void> {
+    const history = await loadTotalScoreHistory();
+
+    // Get cumulative score up to previous day
+    const currentDate = new Date(dateKey);
+    const yesterday = new Date(currentDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = yesterday.toISOString().slice(0, 10);
+
+    const previousTotal = getTotalFromHistory(history, dateKey);
+    history[dateKey] = previousTotal + dayScore;
+
+    await saveTotalScoreHistory(history);
 }
