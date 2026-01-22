@@ -5,7 +5,7 @@ import styles from './HistoryHeatmap.module.css';
 import { listAllStates, PersistedEntry, PersistedState } from './dropStorage';
 import { useSelectedDate } from './DateContext';
 import { useDroppedItems } from './DroppedItemsContext';
-import { getDeductionScore } from '@/lib/scoring';
+import { getDeductionScore, type ScoringItem } from '@/lib/scoring';
 import scoringData from '@/data/scoring.json';
 
 interface DayTile {
@@ -35,7 +35,7 @@ function computeEntryScore(entry: PersistedEntry): number {
         }
         // For timer-based deductions (duration type)
         if (deducItem?.type === 'tiered' && deducItem.baseType === 'duration') {
-            return getDeductionScore(deducItem, entry.timerSeconds ?? 0);
+            return getDeductionScore(deducItem as ScoringItem, entry.timerSeconds ?? 0);
         }
     }
 

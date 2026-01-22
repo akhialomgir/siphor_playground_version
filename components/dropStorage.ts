@@ -3,12 +3,14 @@ const STORE_NAME = 'entries';
 const WEEKLY_STORE_NAME = 'weeklyGoals';
 const DB_VERSION = 2;
 
+import type { ScoringCriteria } from '@/lib/scoring';
+
 export interface PersistedEntry {
     id: string;
     name: string;
     scoreType: 'gain' | 'deduction';
     selectedIndex?: number;
-    criteria?: any[];
+    criteria?: ScoringCriteria[];
     baseType?: string;
     fixedScore?: number;
     categoryKey?: string;

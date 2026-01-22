@@ -6,7 +6,7 @@ import { useDroppedItems } from './DroppedItemsContext';
 import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, type WeeklyGoalsState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
-import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals } from '@/lib/scoring';
+import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals, type ScoringItem } from '@/lib/scoring';
 import scoringData from '@/data/scoring.json';
 
 interface Criteria {
@@ -76,7 +76,7 @@ function computeScore(entry: DroppedEntry): number {
         }
         // For timer-based deductions (duration type)
         if (deducItem?.type === 'tiered' && deducItem.baseType === 'duration') {
-            return getDeductionScore(deducItem, entry.timerSeconds ?? 0);
+            return getDeductionScore(deducItem as ScoringItem, entry.timerSeconds ?? 0);
         }
     }
 

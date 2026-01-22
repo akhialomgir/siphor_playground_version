@@ -47,15 +47,16 @@ export function getWeeklyGoals(): WeeklyGoal[] {
     const goals: WeeklyGoal[] = [];
 
     // Scan all categories for items with goals config
-    Object.values(scoringData).forEach(category => {
-        if (Array.isArray(category.items)) {
-            category.items.forEach((item: any) => {
-                if (item.goals && Array.isArray(item.goals)) {
-                    item.goals.forEach((goal: any) => {
+    Object.values(scoringData).forEach((category) => {
+        if (category && typeof category === 'object' && 'items' in category && Array.isArray(category.items)) {
+            category.items.forEach((item) => {
+                const scoringItem = item as unknown as ScoringItem;
+                if (scoringItem.goals && Array.isArray(scoringItem.goals)) {
+                    scoringItem.goals.forEach((goal: LongTermGoalConfig) => {
                         if (goal.type === 'weekly') {
                             goals.push({
                                 id: goal.id,
-                                name: item.name,
+                                name: scoringItem.name,
                                 type: goal.type,
                                 targetCount: goal.targetCount,
                                 rewardPoints: goal.rewardPoints,
@@ -91,7 +92,7 @@ export function getWeekKey(dateStr: string): string {
     return `week-${iso}`;
 }
 
-export function getDeductionScore(item: any, countOrSeconds: number): number {
+export function getDeductionScore(item: ScoringItem, countOrSeconds: number): number {
     if (item.type === 'fixed') {
         return (item.score ?? 0) * countOrSeconds;
     }
