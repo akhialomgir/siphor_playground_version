@@ -18,6 +18,8 @@ export interface PersistedEntry {
     timerStartTs?: number | null;
     timerPaused?: boolean;
     count?: number; // for count-based deductions
+    customDescription?: string; // for custom expense description
+    customScore?: number; // for custom expense score
 }
 
 export type PersistedState = { deductions: PersistedEntry[]; gains: PersistedEntry[] };

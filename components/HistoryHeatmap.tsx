@@ -19,6 +19,14 @@ interface HistoryHeatmapProps {
 }
 
 function computeEntryScore(entry: PersistedEntry): number {
+    // For custom expense
+    if (entry.scoreType === 'deduction') {
+        const deducItem = scoringData.deductions.items.find(d => d.name === entry.name);
+        if (deducItem?.type === 'custom') {
+            return -(entry.customScore ?? 0); // Negative because it's a deduction
+        }
+    }
+
     // For count-based deductions (fixed type)
     if (entry.scoreType === 'deduction' && entry.categoryKey !== 'targetGains') {
         const deducItem = scoringData.deductions.items.find(d => d.name === entry.name);

@@ -41,6 +41,8 @@ interface DroppedEntry {
     timerStartTs?: number | null;
     timerPaused?: boolean;
     count?: number; // for count-based deductions (bili, sosx)
+    customDescription?: string; // for custom expense description
+    customScore?: number; // for custom expense score
 }
 
 const badgeBase: React.CSSProperties = {
@@ -58,6 +60,11 @@ const PtsBadge = ({ value }: { value: number }) => (
 );
 
 function computeScore(entry: DroppedEntry): number {
+    // For custom expense
+    if (entry.scoreType === 'deduction' && isCustomExpense(entry.name)) {
+        return -(entry.customScore ?? 0); // Negative because it's a deduction
+    }
+
     // For count-based deductions (fixed type)
     if (entry.scoreType === 'deduction' && entry.categoryKey !== 'targetGains') {
         const deducItem = scoringData.deductions.items.find(d => d.name === entry.name);
@@ -105,6 +112,11 @@ function isTimerDeduction(name: string): boolean {
     return item?.type === 'tiered' && item.baseType === 'duration';
 }
 
+function isCustomExpense(name: string): boolean {
+    const item = scoringData.deductions.items.find(d => d.name === name);
+    return item?.type === 'custom';
+}
+
 export default function DragDropBox() {
     const [deductions, setDeductions] = useState<DroppedEntry[]>([]);
     const [gains, setGains] = useState<DroppedEntry[]>([]);
@@ -116,6 +128,7 @@ export default function DragDropBox() {
     const [activeDeductionTimerId, setActiveDeductionTimerId] = useState<string | null>(null);
     const [focusScore, setFocusScore] = useState<number>(0);
     const [focusTime, setFocusTime] = useState<number>(0);
+    const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
     const clearTimerRef = useRef<number | null>(null);
     const { replaceAll } = useDroppedItems();
 
@@ -392,20 +405,34 @@ export default function DragDropBox() {
                 timerRunning: false,
                 timerStartTs: null,
                 timerPaused: false,
-                count: 1 // Initialize count for count-based deductions
+                count: 1, // Initialize count for count-based deductions
+                customDescription: 'Expense', // Initialize custom description
+                customScore: 0 // Initialize custom score
             };
 
             if (baseEntry.scoreType === 'deduction') {
                 setDeductions(prev => {
-                    const exists = prev.some(p => p.id === baseEntry.id);
-                    if (exists) return prev;
+                    // Allow custom expenses to be added multiple times with unique IDs
+                    let entryToAdd = baseEntry;
+                    if (isCustomExpense(baseEntry.name)) {
+                        // Generate unique ID for custom expenses
+                        entryToAdd = { ...baseEntry, id: `${baseEntry.id}-${Date.now()}-${Math.random()}` };
+                    } else {
+                        const exists = prev.some(p => p.id === baseEntry.id);
+                        if (exists) return prev;
+                    }
 
                     // For timer-based deductions (like game), auto-start the timer
                     const now = Date.now();
-                    let fresh = { ...baseEntry, justAdded: true };
-                    if (isTimerDeduction(baseEntry.name)) {
+                    let fresh = { ...entryToAdd, justAdded: true };
+                    if (isTimerDeduction(entryToAdd.name)) {
                         fresh = { ...fresh, timerRunning: true, timerStartTs: now };
-                        setActiveDeductionTimerId(baseEntry.id);
+                        setActiveDeductionTimerId(entryToAdd.id);
+                    }
+
+                    // For custom expenses, enter edit mode
+                    if (isCustomExpense(entryToAdd.name)) {
+                        setEditingExpenseId(entryToAdd.id);
                     }
 
                     setTimeout(() => {
@@ -546,6 +573,9 @@ export default function DragDropBox() {
         // Check if this is a timer-based deduction using JSON structure
         const isTimerBasedDeduction = entry.scoreType === 'deduction' && isTimerDeduction(entry.name);
 
+        // Check if this is a custom expense
+        const isCustomExp = entry.scoreType === 'deduction' && isCustomExpense(entry.name);
+
         const handleCountChange = (delta: number) => {
             if (!editable) return;
             const newCount = Math.max(0, (entry.count ?? 1) + delta);
@@ -563,258 +593,448 @@ export default function DragDropBox() {
             ));
         };
 
+        const handleCustomDescriptionChange = (newDesc: string) => {
+            if (!editable) return;
+            setDeductions(prev => prev.map(p =>
+                p.id === entry.id
+                    ? { ...p, customDescription: newDesc }
+                    : p
+            ));
+        };
+
+        const handleCustomScoreChange = (newScore: string) => {
+            if (!editable) return;
+            const scoreNum = Number(newScore) || 0;
+            setDeductions(prev => prev.map(p =>
+                p.id === entry.id
+                    ? { ...p, customScore: scoreNum }
+                    : p
+            ));
+        };
+
+        const handleDescKeyDown = (ev: React.KeyboardEvent<HTMLInputElement>) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                const next = ev.currentTarget.nextElementSibling as HTMLInputElement | null;
+                next?.focus();
+            }
+        };
+
+        const handleScoreKeyDown = (ev: React.KeyboardEvent<HTMLInputElement>) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                setEditingExpenseId(null);
+            }
+        };
+
         return (
             <div
                 key={`${list}-${entry.id}`}
-                style={listItemStyle}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 10px',
+                    borderBottom: '1px solid #1f2937'
+                }}
                 className={`${styles.entry} ${entry.justAdded ? styles.entryHighlight : ''}`}
             >
-                <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>{entry.name}</span>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* Count buttons for count-based deductions */}
-                    {isCountBased && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <button
-                                onClick={() => handleCountChange(-1)}
-                                disabled={!editable || (entry.count ?? 1) <= 1}
-                                style={{
-                                    border: '1px solid #475569',
-                                    background: editable && (entry.count ?? 1) > 1 ? '#1f2937' : '#111827',
-                                    color: editable && (entry.count ?? 1) > 1 ? '#94a3b8' : '#64748b',
-                                    padding: '2px 6px',
-                                    borderRadius: '4px',
-                                    cursor: editable && (entry.count ?? 1) > 1 ? 'pointer' : 'not-allowed',
-                                    fontSize: '12px',
-                                    fontWeight: 500
-                                }}
-                                aria-label="Decrease count"
-                            >
-                                −
-                            </button>
-                            <span style={{
-                                minWidth: '20px',
-                                textAlign: 'center',
-                                fontSize: '12px',
-                                fontWeight: 500,
-                                color: '#cbd5e1'
-                            }}>
-                                {entry.count ?? 1}
-                            </span>
-                            <button
-                                onClick={() => handleCountChange(1)}
+                {isCustomExp ? (
+                    editingExpenseId === entry.id ? (
+                        // Edit mode - single line layout
+                        <>
+                            <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb', minWidth: 'fit-content' }}>Expense</span>
+                            <input
+                                type="text"
+                                value={entry.customDescription ?? ''}
+                                onChange={(e) => handleCustomDescriptionChange(e.target.value)}
+                                placeholder="Description"
                                 disabled={!editable}
+                                onKeyDown={handleDescKeyDown}
                                 style={{
-                                    border: '1px solid #475569',
-                                    background: editable ? '#1f2937' : '#111827',
-                                    color: editable ? '#94a3b8' : '#64748b',
-                                    padding: '2px 6px',
+                                    flex: 1,
+                                    padding: '6px 8px',
                                     borderRadius: '4px',
-                                    cursor: editable ? 'pointer' : 'not-allowed',
-                                    fontSize: '12px',
-                                    fontWeight: 500
+                                    border: '1px solid #334155',
+                                    backgroundColor: editable ? '#1f2937' : '#111827',
+                                    color: editable ? '#e5e7eb' : '#64748b',
+                                    fontSize: '13px',
+                                    outline: 'none',
+                                    transition: 'border-color 0.2s',
+                                    cursor: editable ? 'text' : 'not-allowed'
                                 }}
-                                aria-label="Increase count"
-                            >
-                                +
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Timer UI for timer-based deductions (game) */}
-                    {isTimerBasedDeduction && (
-                        <div style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid #1f2937',
-                            background: '#111827',
-                            color: '#94a3b8',
-                            fontSize: '12px'
-                        }}>
-                            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                                {timerDisplay}
-                            </span>
-                            {editable && entry.timerRunning && (
-                                <button
-                                    onClick={() => pauseTimer(entry.id, 'deduction')}
-                                    style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: '#e5e7eb',
-                                        cursor: 'pointer',
-                                        fontSize: '14px',
-                                        lineHeight: 1
-                                    }}
-                                    aria-label="Pause timer"
-                                >
-                                    ⏸
-                                </button>
-                            )}
-                            {editable && !entry.timerRunning && (
-                                <button
-                                    onClick={() => resumeTimer(entry.id, 'deduction')}
-                                    style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: '#e5e7eb',
-                                        cursor: 'pointer',
-                                        fontSize: '14px',
-                                        lineHeight: 1
-                                    }}
-                                    aria-label="Resume timer"
-                                >
-                                    ▶
-                                </button>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Timer UI for target gains */}
-                    {isTargetGain && (
-                        <div style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            border: isActiveTimer ? '1px solid #1f2937' : '1px solid #1f2937',
-                            background: isActiveTimer ? '#0b1220' : '#111827',
-                            color: isActiveTimer ? '#e5e7eb' : '#94a3b8',
-                            fontSize: '12px'
-                        }}>
-                            <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                                {timerDisplay}
-                            </span>
-                            {isActiveTimer && editable && entry.timerRunning && (
-                                <button
-                                    onClick={() => pauseTimer(entry.id, 'gain')}
-                                    style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: '#e5e7eb',
-                                        cursor: 'pointer',
-                                        fontSize: '14px',
-                                        lineHeight: 1
-                                    }}
-                                    aria-label="Pause timer"
-                                >
-                                    ⏸
-                                </button>
-                            )}
-                            {isActiveTimer && editable && !entry.timerRunning && (
-                                <button
-                                    onClick={() => resumeTimer(entry.id, 'gain')}
-                                    style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: '#e5e7eb',
-                                        cursor: 'pointer',
-                                        fontSize: '14px',
-                                        lineHeight: 1
-                                    }}
-                                    aria-label="Resume timer"
-                                >
-                                    ▶
-                                </button>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Bonus toggle for target gains */}
-                    {isTargetGain && (
-                        <button
-                            onClick={() => {
-                                if (!editable) return;
-                                if (list === 'deduction') {
-                                    setDeductions(prev => prev.map(p => p.id === entry.id ? { ...p, bonusActive: !p.bonusActive } : p));
-                                } else {
-                                    setGains(prev => prev.map(p => p.id === entry.id ? { ...p, bonusActive: !p.bonusActive } : p));
-                                }
-                            }}
-                            style={{
-                                border: 'none',
-                                background: editable ? (entry.bonusActive ? '#2d1a1e' : '#113227') : '#1f2937',
-                                color: editable ? (entry.bonusActive ? '#fca5a5' : '#6ee7b7') : '#64748b',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                cursor: editable ? 'pointer' : 'not-allowed',
-                                fontWeight: 600,
-                                fontSize: '12px'
-                            }}
-                            disabled={!editable}
-                            aria-label="Toggle bonus"
-                        >
-                            {entry.bonusActive ? '✕' : '+10'}
-                        </button>
-                    )}
-
-                    {/* Criteria select for gains with criteria */}
-                    {hasCriteria && entry.scoreType === 'gain' ? (
-                        <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                            <select
-                                value={entry.selectedIndex ?? 0}
-                                onChange={(ev) => updateCriteriaIndex(list, entry.id, parseInt(ev.target.value, 10))}
+                                onFocus={(e) => {
+                                    e.target.style.borderColor = '#0ea5e9';
+                                }}
+                                onBlur={(e) => {
+                                    e.target.style.borderColor = '#334155';
+                                }}
+                            />
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={entry.customScore ?? 0}
+                                onChange={(e) => handleCustomScoreChange(e.target.value)}
+                                placeholder="0"
+                                disabled={!editable}
+                                onKeyDown={handleScoreKeyDown}
                                 style={{
-                                    fontSize: '12px',
-                                    padding: '4px 28px 4px 8px',
+                                    width: '60px',
+                                    padding: '6px 8px',
                                     borderRadius: '4px',
+                                    border: '1px solid #334155',
+                                    backgroundColor: editable ? '#1f2937' : '#111827',
+                                    color: editable ? '#e5e7eb' : '#64748b',
+                                    fontSize: '13px',
+                                    outline: 'none',
+                                    transition: 'border-color 0.2s',
+                                    cursor: editable ? 'text' : 'not-allowed',
+                                    textAlign: 'center'
+                                }}
+                                onFocus={(e) => {
+                                    e.target.style.borderColor = '#0ea5e9';
+                                }}
+                                onBlur={(e) => {
+                                    e.target.style.borderColor = '#334155';
+                                }}
+                            />
+                            <button
+                                onClick={() => {
+                                    setEditingExpenseId(null);
+                                }}
+                                style={{
                                     border: 'none',
-                                    backgroundColor: editable ? '#113227' : '#1f2937',
-                                    color: editable ? '#6ee7b7' : '#64748b',
-                                    fontWeight: 500,
+                                    background: 'transparent',
+                                    color: editable ? '#10b981' : '#64748b',
                                     cursor: editable ? 'pointer' : 'not-allowed',
-                                    appearance: 'none',
-                                    WebkitAppearance: 'none',
-                                    MozAppearance: 'none',
-                                    outline: 'none'
+                                    fontSize: '14px',
+                                    padding: '2px 6px'
                                 }}
                                 disabled={!editable}
+                                aria-label="Save"
+                                title="Save changes"
                             >
-                                {entry.criteria!.map((c, i) => (
-                                    <option value={i} key={`${entry.id}-opt-${i}`}>
-                                        {c.score} pts
-                                    </option>
-                                ))}
-                            </select>
-                            <span style={{
-                                position: 'absolute',
-                                right: '8px',
-                                pointerEvents: 'none',
-                                color: '#e5e7eb',
-                                fontSize: '12px'
-                            }}>▾</span>
-                        </div>
+                                ✓
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (!editable) return;
+                                    setDeductions(prev => prev.filter(p => p.id !== entry.id));
+                                }}
+                                style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: editable ? '#94a3b8' : '#64748b',
+                                    cursor: editable ? 'pointer' : 'not-allowed',
+                                    fontSize: '12px',
+                                    padding: '2px 6px'
+                                }}
+                                disabled={!editable}
+                                aria-label="Remove item"
+                            >
+                                ✕
+                            </button>
+                        </>
                     ) : (
-                        <PtsBadge value={score} />
-                    )}
+                        // Display mode - like other deductions
+                        <>
+                            <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>
+                                {entry.customDescription ?? 'Expense'}
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                                <button
+                                    onClick={() => {
+                                        if (!editable) return;
+                                        setEditingExpenseId(entry.id);
+                                    }}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: editable ? '#60a5fa' : '#64748b',
+                                        cursor: editable ? 'pointer' : 'not-allowed',
+                                        fontSize: '12px',
+                                        padding: '2px 6px'
+                                    }}
+                                    disabled={!editable}
+                                    aria-label="Edit"
+                                    title="Edit expense"
+                                >
+                                    ✎
+                                </button>
+                                <PtsBadge value={score} />
+                                <button
+                                    onClick={() => {
+                                        if (!editable) return;
+                                        setDeductions(prev => prev.filter(p => p.id !== entry.id));
+                                    }}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: editable ? '#94a3b8' : '#64748b',
+                                        cursor: editable ? 'pointer' : 'not-allowed',
+                                        fontSize: '12px',
+                                        padding: '2px 6px'
+                                    }}
+                                    disabled={!editable}
+                                    aria-label="Remove item"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </>
+                    )
+                ) : (
+                    // Regular entry layout
+                    <>
+                        <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>{entry.name}</span>
 
-                    {/* Remove button */}
-                    <button
-                        onClick={() => {
-                            if (!editable) return;
-                            if (list === 'deduction') {
-                                setDeductions(prev => prev.filter(p => p.id !== entry.id));
-                            } else {
-                                setGains(prev => prev.filter(p => p.id !== entry.id));
-                            }
-                        }}
-                        style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: editable ? '#94a3b8' : '#64748b',
-                            cursor: editable ? 'pointer' : 'not-allowed',
-                            fontSize: '12px',
-                            padding: '2px 6px'
-                        }}
-                        disabled={!editable}
-                        aria-label="Remove item"
-                    >
-                        ✕
-                    </button>
-                </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                            {/* Count buttons for count-based deductions */}
+                            {isCountBased && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <button
+                                        onClick={() => handleCountChange(-1)}
+                                        disabled={!editable || (entry.count ?? 1) <= 1}
+                                        style={{
+                                            border: '1px solid #475569',
+                                            background: editable && (entry.count ?? 1) > 1 ? '#1f2937' : '#111827',
+                                            color: editable && (entry.count ?? 1) > 1 ? '#94a3b8' : '#64748b',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            cursor: editable && (entry.count ?? 1) > 1 ? 'pointer' : 'not-allowed',
+                                            fontSize: '12px',
+                                            fontWeight: 500
+                                        }}
+                                        aria-label="Decrease count"
+                                    >
+                                        −
+                                    </button>
+                                    <span style={{
+                                        minWidth: '20px',
+                                        textAlign: 'center',
+                                        fontSize: '12px',
+                                        fontWeight: 500,
+                                        color: '#cbd5e1'
+                                    }}>
+                                        {entry.count ?? 1}
+                                    </span>
+                                    <button
+                                        onClick={() => handleCountChange(1)}
+                                        disabled={!editable}
+                                        style={{
+                                            border: '1px solid #475569',
+                                            background: editable ? '#1f2937' : '#111827',
+                                            color: editable ? '#94a3b8' : '#64748b',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            cursor: editable ? 'pointer' : 'not-allowed',
+                                            fontSize: '12px',
+                                            fontWeight: 500
+                                        }}
+                                        aria-label="Increase count"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Timer UI for timer-based deductions (game) */}
+                            {isTimerBasedDeduction && (
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #1f2937',
+                                    background: '#111827',
+                                    color: '#94a3b8',
+                                    fontSize: '12px'
+                                }}>
+                                    <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                        {timerDisplay}
+                                    </span>
+                                    {editable && entry.timerRunning && (
+                                        <button
+                                            onClick={() => pauseTimer(entry.id, 'deduction')}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: '#e5e7eb',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                lineHeight: 1
+                                            }}
+                                            aria-label="Pause timer"
+                                        >
+                                            ⏸
+                                        </button>
+                                    )}
+                                    {editable && !entry.timerRunning && (
+                                        <button
+                                            onClick={() => resumeTimer(entry.id, 'deduction')}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: '#e5e7eb',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                lineHeight: 1
+                                            }}
+                                            aria-label="Resume timer"
+                                        >
+                                            ▶
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Timer UI for target gains */}
+                            {isTargetGain && (
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    border: isActiveTimer ? '1px solid #1f2937' : '1px solid #1f2937',
+                                    background: isActiveTimer ? '#0b1220' : '#111827',
+                                    color: isActiveTimer ? '#e5e7eb' : '#94a3b8',
+                                    fontSize: '12px'
+                                }}>
+                                    <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                        {timerDisplay}
+                                    </span>
+                                    {isActiveTimer && editable && entry.timerRunning && (
+                                        <button
+                                            onClick={() => pauseTimer(entry.id, 'gain')}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: '#e5e7eb',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                lineHeight: 1
+                                            }}
+                                            aria-label="Pause timer"
+                                        >
+                                            ⏸
+                                        </button>
+                                    )}
+                                    {isActiveTimer && editable && !entry.timerRunning && (
+                                        <button
+                                            onClick={() => resumeTimer(entry.id, 'gain')}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: '#e5e7eb',
+                                                cursor: 'pointer',
+                                                fontSize: '14px',
+                                                lineHeight: 1
+                                            }}
+                                            aria-label="Resume timer"
+                                        >
+                                            ▶
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Bonus toggle for target gains */}
+                            {isTargetGain && (
+                                <button
+                                    onClick={() => {
+                                        if (!editable) return;
+                                        if (list === 'deduction') {
+                                            setDeductions(prev => prev.map(p => p.id === entry.id ? { ...p, bonusActive: !p.bonusActive } : p));
+                                        } else {
+                                            setGains(prev => prev.map(p => p.id === entry.id ? { ...p, bonusActive: !p.bonusActive } : p));
+                                        }
+                                    }}
+                                    style={{
+                                        border: 'none',
+                                        background: editable ? (entry.bonusActive ? '#2d1a1e' : '#113227') : '#1f2937',
+                                        color: editable ? (entry.bonusActive ? '#fca5a5' : '#6ee7b7') : '#64748b',
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        cursor: editable ? 'pointer' : 'not-allowed',
+                                        fontWeight: 600,
+                                        fontSize: '12px'
+                                    }}
+                                    disabled={!editable}
+                                    aria-label="Toggle bonus"
+                                >
+                                    {entry.bonusActive ? '✕' : '+10'}
+                                </button>
+                            )}
+
+                            {/* Criteria select for gains with criteria */}
+                            {hasCriteria && entry.scoreType === 'gain' ? (
+                                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                                    <select
+                                        value={entry.selectedIndex ?? 0}
+                                        onChange={(ev) => updateCriteriaIndex(list, entry.id, parseInt(ev.target.value, 10))}
+                                        style={{
+                                            fontSize: '12px',
+                                            padding: '4px 28px 4px 8px',
+                                            borderRadius: '4px',
+                                            border: 'none',
+                                            backgroundColor: editable ? '#113227' : '#1f2937',
+                                            color: editable ? '#6ee7b7' : '#64748b',
+                                            fontWeight: 500,
+                                            cursor: editable ? 'pointer' : 'not-allowed',
+                                            appearance: 'none',
+                                            WebkitAppearance: 'none',
+                                            MozAppearance: 'none',
+                                            outline: 'none'
+                                        }}
+                                        disabled={!editable}
+                                    >
+                                        {entry.criteria!.map((c, i) => (
+                                            <option value={i} key={`${entry.id}-opt-${i}`}>
+                                                {c.score} pts
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <span style={{
+                                        position: 'absolute',
+                                        right: '8px',
+                                        pointerEvents: 'none',
+                                        color: '#e5e7eb',
+                                        fontSize: '12px'
+                                    }}>▾</span>
+                                </div>
+                            ) : (
+                                <PtsBadge value={score} />
+                            )}
+
+                            {/* Remove button */}
+                            <button
+                                onClick={() => {
+                                    if (!editable) return;
+                                    if (list === 'deduction') {
+                                        setDeductions(prev => prev.filter(p => p.id !== entry.id));
+                                    } else {
+                                        setGains(prev => prev.filter(p => p.id !== entry.id));
+                                    }
+                                }}
+                                style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: editable ? '#94a3b8' : '#64748b',
+                                    cursor: editable ? 'pointer' : 'not-allowed',
+                                    fontSize: '12px',
+                                    padding: '2px 6px'
+                                }}
+                                disabled={!editable}
+                                aria-label="Remove item"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    </>
+                )}
             </div>
         );
     };

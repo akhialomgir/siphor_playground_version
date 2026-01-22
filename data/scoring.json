@@ -25,6 +25,13 @@
         "name": "sosx",
         "score": 50,
         "type": "fixed"
+      },
+      {
+        "id": "3",
+        "name": "expense",
+        "score": 0,
+        "type": "custom",
+        "description": "Custom expense"
       }
     ]
   },
