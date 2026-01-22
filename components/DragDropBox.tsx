@@ -810,6 +810,7 @@ export default function DragDropBox() {
         const weeklyProgress = weeklyGoal && weeklyGoalsState.goals[entry.weeklyGoalId!] ? weeklyGoalsState.goals[entry.weeklyGoalId!] : undefined;
         const weeklySegments = weeklyGoal ? (weeklyGoal.segmentCount || weeklyGoal.targetCount) : 0;
         const weeklyFilled = weeklyGoal ? Math.min(weeklyProgress?.count ?? 0, weeklyGoal.targetCount) : 0;
+        const showWeeklyProgress = weeklyGoal && weeklySegments > 0;
 
         // Check if this is a count-based deduction using JSON structure
         const isCountBased = entry.scoreType === 'deduction' && isCountBasedDeduction(entry.name);
@@ -876,10 +877,12 @@ export default function DragDropBox() {
                 key={`${list}-${entry.id}`}
                 style={{
                     display: 'flex',
-                    alignItems: 'center',
+                    alignItems: showWeeklyProgress ? 'flex-start' : 'center',
                     gap: '8px',
+                    rowGap: showWeeklyProgress ? '6px' : undefined,
                     padding: '8px 10px',
-                    borderBottom: '1px solid #1f2937'
+                    borderBottom: '1px solid #1f2937',
+                    flexWrap: showWeeklyProgress ? 'wrap' : 'nowrap'
                 }}
                 className={`${styles.entry} ${entry.justAdded ? styles.entryHighlight : ''}`}
             >
@@ -1303,8 +1306,8 @@ export default function DragDropBox() {
                             </button>
                         </div>
 
-                        {weeklyGoal && weeklySegments > 0 && (
-                            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: 'flex-end' }}>
+                        {showWeeklyProgress && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: 'flex-end', flexBasis: '100%' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeklySegments}, 1fr)`, gap: '4px', width: '100%', maxWidth: '200px' }}>
                                     {Array.from({ length: weeklySegments }).map((_, idx) => {
                                         const filled = idx < (weeklyProgress?.count ?? 0);
