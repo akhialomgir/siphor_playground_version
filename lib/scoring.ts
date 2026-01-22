@@ -49,9 +49,9 @@ export function getWeeklyGoals(): WeeklyGoal[] {
     // Scan all categories for items with goals config
     Object.values(scoringData).forEach(category => {
         if (Array.isArray(category.items)) {
-            category.items.forEach(item => {
+            category.items.forEach((item: any) => {
                 if (item.goals && Array.isArray(item.goals)) {
-                    item.goals.forEach(goal => {
+                    item.goals.forEach((goal: any) => {
                         if (goal.type === 'weekly') {
                             goals.push({
                                 id: goal.id,
