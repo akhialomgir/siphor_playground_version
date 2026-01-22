@@ -3,10 +3,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
-import { clearPersistedState, loadPersistedState, savePersistedState } from './dropStorage';
+import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, type WeeklyGoalsState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
-import { getFocusScore, getFocusCriteria, getDeductionScore } from '@/lib/scoring';
+import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals } from '@/lib/scoring';
 import scoringData from '@/data/scoring.json';
 
 interface Criteria {
@@ -23,6 +23,7 @@ interface DroppedPayload {
     criteria?: Criteria[];
     baseType?: string;
     categoryKey?: string;
+    weeklyGoalId?: string;
 }
 
 interface DroppedEntry {
@@ -43,6 +44,8 @@ interface DroppedEntry {
     count?: number; // for count-based deductions (bili, sosx)
     customDescription?: string; // for custom expense description
     customScore?: number; // for custom expense score
+    weeklyGoalId?: string; // link to weekly goal definition
+    weeklyRewardId?: string; // ID of the weekly reward entry if already granted
 }
 
 const badgeBase: React.CSSProperties = {
@@ -129,8 +132,10 @@ export default function DragDropBox() {
     const [focusScore, setFocusScore] = useState<number>(0);
     const [focusTime, setFocusTime] = useState<number>(0);
     const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+    const [weekKey, setWeekKey] = useState<string>(() => getWeekKey(new Date().toISOString().slice(0, 10)));
+    const [weeklyGoalsState, setWeeklyGoalsState] = useState<WeeklyGoalsState>({ goals: {} });
     const clearTimerRef = useRef<number | null>(null);
-    const { replaceAll } = useDroppedItems();
+    const { replaceAll, notifyWeeklyGoalsUpdate } = useDroppedItems();
 
     const formatDate = (key: string) => {
         if (!key) return '';
@@ -160,9 +165,20 @@ export default function DragDropBox() {
     };
 
     useEffect(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const key = getWeekKey(dateKey || today);
+        setWeekKey(key);
+        loadWeeklyGoals(key).then(state => {
+            setWeeklyGoalsState(state);
+        }).catch(() => {
+            setWeeklyGoalsState({ goals: {} });
+        });
+    }, [dateKey]);
+
+    useEffect(() => {
         const ids = [...deductions, ...gains].map(e => e.id);
         replaceAll(ids);
-    }, [deductions, gains, replaceAll]);
+    }, [deductions, gains]);
 
     useEffect(() => {
         if (!hydrated) return;
@@ -335,7 +351,34 @@ export default function DragDropBox() {
                 return entry;
             });
             setDeductions(normalize(state.deductions ?? []));
-            setGains(normalize(state.gains ?? []));
+            const normalizedGains = normalize(state.gains ?? []);
+
+            // Validate weekly rewards: if a reward entry is missing its goal item, clear rewarded flag
+            const goalItemIds = new Set(normalizedGains
+                .filter(g => g.weeklyGoalId && !g.weeklyRewardId)
+                .map(g => g.weeklyGoalId));
+
+            loadWeeklyGoals(weekKey).then(weekState => {
+                let shouldUpdate = false;
+                const updatedGoals: Record<string, any> = { ...weekState.goals };
+
+                goalItemIds.forEach(goalId => {
+                    if (goalId && updatedGoals[goalId] && updatedGoals[goalId].rewarded) {
+                        const hasRewardEntry = normalizedGains.some(g => g.weeklyRewardId && g.weeklyRewardId.includes(goalId));
+                        if (!hasRewardEntry) {
+                            updatedGoals[goalId].rewarded = false;
+                            shouldUpdate = true;
+                        }
+                    }
+                });
+
+                if (shouldUpdate) {
+                    saveWeeklyGoals(weekKey, { goals: updatedGoals });
+                    setWeeklyGoalsState({ goals: updatedGoals });
+                }
+            }).catch(() => { });
+
+            setGains(normalizedGains);
             setHydrated(true);
         }).catch(err => {
             console.error('Failed to load persisted state:', err);
@@ -350,6 +393,59 @@ export default function DragDropBox() {
         if (!hydrated || !dateKey) return;
         savePersistedState(dateKey, deductions, gains);
     }, [deductions, gains, hydrated, dateKey]);
+
+    // Recalculate weekly goal counts whenever gains change
+    useEffect(() => {
+        if (!hydrated || !weekKey) return;
+
+        // Get all possible weekly goals from scoring data
+        const allWeeklyGoals = getWeeklyGoals();
+
+        // Calculate new states for all goals
+        const updates: Array<{ goalId: string; count: number; rewarded: boolean }> = [];
+
+        allWeeklyGoals.forEach(goal => {
+            const count = gains.filter(g => g.weeklyGoalId === goal.id && !g.weeklyRewardId).length;
+            updates.push({
+                goalId: goal.id,
+                count,
+                rewarded: count >= goal.targetCount
+            });
+        });
+
+        // Update all goals at once
+        setWeeklyGoalsState(prev => {
+            let hasChanges = false;
+            const newGoals = { ...prev.goals };
+
+            updates.forEach(({ goalId, count, rewarded }) => {
+                const current = prev.goals[goalId] ?? { count: 0, rewarded: false };
+
+                // Check if there's a change
+                if (current.count !== count || (rewarded && !current.rewarded)) {
+                    hasChanges = true;
+                    newGoals[goalId] = {
+                        count,
+                        rewarded: current.rewarded || rewarded
+                    };
+                    console.log('[DragDropBox] Updating weekly goal:', goalId, 'count:', count, 'rewarded:', current.rewarded || rewarded);
+                }
+            });
+
+            if (!hasChanges) {
+                return prev;
+            }
+
+            const nextState: WeeklyGoalsState = { goals: newGoals };
+            saveWeeklyGoals(weekKey, nextState);
+
+            // Notify after state is updated
+            console.log('[DragDropBox] Notifying weekly goals update');
+            setTimeout(() => notifyWeeklyGoalsUpdate(), 0);
+
+            return nextState;
+        });
+    }, [gains, hydrated, weekKey, notifyWeeklyGoalsUpdate]);
 
     const triggerClear = () => {
         setDeductions([]);
@@ -373,6 +469,69 @@ export default function DragDropBox() {
             clearTimerRef.current = null;
         }
         setIsPressingClear(false);
+    };
+
+    // Recalculate weekly goal count based on current gains
+    // This ensures sync by counting actual items instead of incrementing/decrementing
+    const recalculateWeeklyGoalCount = (goalId: string, itemName: string) => {
+        const goal = getWeeklyGoalById(goalId);
+        if (!goal || !weekKey) return;
+
+        // Count all items with this weeklyGoalId (excluding reward entries)
+        const count = gains.filter(g => g.weeklyGoalId === goalId && !g.weeklyRewardId).length;
+
+        setWeeklyGoalsState(prev => {
+            const current = prev.goals[goalId] ?? { count: 0, rewarded: false };
+            const shouldReward = !current.rewarded && count >= goal.targetCount;
+
+            const nextState: WeeklyGoalsState = {
+                goals: {
+                    ...prev.goals,
+                    [goalId]: { count, rewarded: current.rewarded || shouldReward }
+                }
+            };
+
+            saveWeeklyGoals(weekKey, nextState);
+            return nextState;
+        });
+    };
+
+    const applyWeeklyProgress = (goalId: string) => {
+        const goal = getWeeklyGoalById(goalId);
+        if (!goal || !weekKey) return;
+
+        // Count how many items exist with this goalId (excluding reward entries)
+        const count = gains.filter(g => g.weeklyGoalId === goalId && !g.weeklyRewardId).length;
+        const shouldReward = count >= goal.targetCount;
+
+        setWeeklyGoalsState(prev => {
+            const current = prev.goals[goalId] ?? { count: 0, rewarded: false };
+            const nextState: WeeklyGoalsState = {
+                goals: {
+                    ...prev.goals,
+                    [goalId]: { count, rewarded: current.rewarded || (shouldReward && !current.rewarded) }
+                }
+            };
+
+            saveWeeklyGoals(weekKey, nextState);
+
+            // Grant reward if just reached target and not yet rewarded
+            if (shouldReward && !current.rewarded) {
+                const rewardId = `weekly-${goalId}-${weekKey}`;
+                const rewardEntry: DroppedEntry = {
+                    id: rewardId,
+                    name: `${goal.name} weekly bonus`,
+                    scoreType: 'gain',
+                    fixedScore: goal.rewardPoints,
+                    categoryKey: 'weeklyGoal',
+                    weeklyGoalId: goalId,
+                    weeklyRewardId: rewardId
+                };
+                setGains(prev => [...prev, rewardEntry]);
+            }
+
+            return nextState;
+        });
     };
 
     const allowDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -402,6 +561,7 @@ export default function DragDropBox() {
                 fixedScore: payload.score,
                 selectedIndex: 0,
                 categoryKey: payload.categoryKey,
+                weeklyGoalId: payload.weeklyGoalId,
                 bonusActive: false,
                 timerSeconds: 0,
                 timerRunning: false,
@@ -457,6 +617,13 @@ export default function DragDropBox() {
                     }, 950);
                     return next;
                 });
+
+                // After gains update, recalculate weekly goals if needed
+                if (payload.weeklyGoalId) {
+                    setTimeout(() => {
+                        // This will be picked up in the next effect cycle
+                    }, 0);
+                }
             }
         } catch (err) {
             // ignore malformed drops
@@ -568,6 +735,10 @@ export default function DragDropBox() {
         const isTargetGain = entry.categoryKey === 'targetGains' && entry.scoreType === 'gain';
         const isActiveTimer = isTargetGain && activeGainTimerId === entry.id;
         const timerDisplay = formatTimer(entry.timerSeconds ?? 0);
+        const weeklyGoal = entry.weeklyGoalId ? getWeeklyGoalById(entry.weeklyGoalId) : undefined;
+        const weeklyProgress = weeklyGoal && weeklyGoalsState.goals[entry.weeklyGoalId!] ? weeklyGoalsState.goals[entry.weeklyGoalId!] : undefined;
+        const weeklySegments = weeklyGoal ? (weeklyGoal.segmentCount || weeklyGoal.targetCount) : 0;
+        const weeklyFilled = weeklyGoal ? Math.min(weeklyProgress?.count ?? 0, weeklyGoal.targetCount) : 0;
 
         // Check if this is a count-based deduction using JSON structure
         const isCountBased = entry.scoreType === 'deduction' && isCountBasedDeduction(entry.name);
@@ -633,7 +804,8 @@ export default function DragDropBox() {
             <div
                 key={`${list}-${entry.id}`}
                 style={{
-                    display: 'flex',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
                     alignItems: 'center',
                     gap: '8px',
                     padding: '8px 10px',
@@ -1018,6 +1190,28 @@ export default function DragDropBox() {
                                     if (list === 'deduction') {
                                         setDeductions(prev => prev.filter(p => p.id !== entry.id));
                                     } else {
+                                        // If this is a weekly reward entry, reset the rewarded flag for that goal
+                                        if (entry.weeklyRewardId) {
+                                            setWeeklyGoalsState(prev => {
+                                                // Extract goalId from weeklyRewardId: "weekly-<goalId>-week-..."
+                                                const parts = entry.weeklyRewardId!.split('-');
+                                                const goalId = parts[1];
+                                                if (!goalId) return prev;
+
+                                                const nextState: WeeklyGoalsState = {
+                                                    goals: {
+                                                        ...prev.goals,
+                                                        [goalId]: {
+                                                            count: prev.goals[goalId]?.count ?? 0,
+                                                            rewarded: false
+                                                        }
+                                                    }
+                                                };
+                                                if (weekKey) saveWeeklyGoals(weekKey, nextState);
+                                                return nextState;
+                                            });
+                                        }
+                                        // Remove the entry (weekly goal items or rewards)
                                         setGains(prev => prev.filter(p => p.id !== entry.id));
                                     }
                                 }}
@@ -1035,6 +1229,30 @@ export default function DragDropBox() {
                                 ✕
                             </button>
                         </div>
+
+                        {weeklyGoal && weeklySegments > 0 && (
+                            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', justifyContent: 'flex-end' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeklySegments}, 1fr)`, gap: '4px', width: '100%', maxWidth: '200px' }}>
+                                    {Array.from({ length: weeklySegments }).map((_, idx) => {
+                                        const filled = idx < (weeklyProgress?.count ?? 0);
+                                        return (
+                                            <div
+                                                key={`${entry.id}-seg-${idx}`}
+                                                style={{
+                                                    height: '6px',
+                                                    borderRadius: '4px',
+                                                    background: filled ? '#22c55e' : '#1f2937',
+                                                    border: '1px solid #1f2937'
+                                                }}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                                <span style={{ color: '#cbd5e1', fontSize: '12px', whiteSpace: 'nowrap', marginLeft: '8px' }}>
+                                    {Math.min(weeklyProgress?.count ?? 0, weeklyGoal.targetCount)}/{weeklyGoal.targetCount}
+                                </span>
+                            </div>
+                        )}
                     </>
                 )}
             </div>
@@ -1136,7 +1354,7 @@ export default function DragDropBox() {
                     {deductions.length === 0 ? (
                         <div style={{ color: '#94a3b8', fontSize: '12px' }}>{editable ? 'Drop items here' : 'Read-only'}</div>
                     ) : (
-                        deductions.map(d => renderEntry(d, 'deduction'))
+                        deductions.map((d, idx) => <div key={`${idx}-${d.id}`}>{renderEntry(d, 'deduction')}</div>)
                     )}
                 </div>
                 <div style={{ backgroundColor: '#1f2937', width: '1px' }} />
@@ -1172,7 +1390,7 @@ export default function DragDropBox() {
                     {gains.length === 0 ? (
                         <div style={{ color: '#94a3b8', fontSize: '12px' }}>{editable ? 'Drop items here' : 'Read-only'}</div>
                     ) : (
-                        gains.map(g => renderEntry(g, 'gain'))
+                        gains.map((g, idx) => <div key={`${idx}-${g.id}`}>{renderEntry(g, 'gain')}</div>)
                     )}
                 </div>
             </div>

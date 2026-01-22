@@ -70,7 +70,15 @@
         "id": "1",
         "name": "exercise",
         "score": 10,
-        "type": "fixed"
+        "type": "fixed",
+        "goals": [
+          {
+            "id": "exercise-weekly",
+            "type": "weekly",
+            "targetCount": 5,
+            "rewardPoints": 30
+          }
+        ]
       },
       {
         "id": "2",

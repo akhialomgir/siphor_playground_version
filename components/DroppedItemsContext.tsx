@@ -5,18 +5,24 @@ import React, { createContext, useContext, useMemo, useState, useCallback } from
 interface DroppedItemsContextValue {
     selectedIds: Set<string>;
     replaceAll: (ids: string[]) => void;
+    weeklyGoalsVersion: number;
+    notifyWeeklyGoalsUpdate: () => void;
 }
 
 const DroppedItemsContext = createContext<DroppedItemsContextValue | undefined>(undefined);
 
 export function DroppedItemsProvider({ children }: { children: React.ReactNode }) {
     const [ids, setIds] = useState<Set<string>>(new Set());
+    const [weeklyGoalsVersion, setWeeklyGoalsVersion] = useState(0);
     const replaceAll = useCallback((nextIds: string[]) => setIds(new Set(nextIds)), []);
+    const notifyWeeklyGoalsUpdate = useCallback(() => setWeeklyGoalsVersion(v => v + 1), []);
 
     const value = useMemo(() => ({
         selectedIds: ids,
-        replaceAll
-    }), [ids, replaceAll]);
+        replaceAll,
+        weeklyGoalsVersion,
+        notifyWeeklyGoalsUpdate
+    }), [ids, replaceAll, weeklyGoalsVersion, notifyWeeklyGoalsUpdate]);
 
     return (
         <DroppedItemsContext.Provider value={value}>

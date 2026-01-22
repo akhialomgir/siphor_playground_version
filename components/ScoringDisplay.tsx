@@ -3,11 +3,21 @@
 import { useState, useEffect } from 'react';
 import scoringData from '@/data/scoring.json';
 import { useDroppedItems } from './DroppedItemsContext';
+import { useSelectedDate } from './DateContext';
+import { loadWeeklyGoals, type WeeklyGoalsState } from './dropStorage';
+import { getWeekKey } from '@/lib/scoring';
 
 interface Criteria {
     time: number;
     score: number;
     comparison?: string;
+}
+
+interface LongTermGoalConfig {
+    id: string;
+    type: 'weekly' | 'monthly' | 'yearly' | 'custom';
+    targetCount: number;
+    rewardPoints: number;
 }
 
 interface ScoringItem {
@@ -17,6 +27,7 @@ interface ScoringItem {
     type: string;
     baseType?: string;
     criteria?: Criteria[];
+    goals?: LongTermGoalConfig[];
 }
 
 interface ScoringCategory {
@@ -26,12 +37,24 @@ interface ScoringCategory {
 
 export default function ScoringDisplay() {
     const [data, setData] = useState<Record<string, ScoringCategory> | null>(null);
-    const { selectedIds } = useDroppedItems();
+    const [weeklyGoalsState, setWeeklyGoalsState] = useState<WeeklyGoalsState>({ goals: {} });
+    const { selectedIds, weeklyGoalsVersion } = useDroppedItems();
+    const { selectedDate } = useSelectedDate();
 
     // Load scoring data on component mount
     useEffect(() => {
         setData(scoringData as unknown as Record<string, ScoringCategory>);
     }, []);
+
+    useEffect(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const key = getWeekKey(selectedDate || today);
+        console.log('[ScoringDisplay] Loading weekly goals, key:', key, 'version:', weeklyGoalsVersion);
+        loadWeeklyGoals(key).then(state => {
+            console.log('[ScoringDisplay] Loaded state:', state);
+            setWeeklyGoalsState(state);
+        }).catch(() => setWeeklyGoalsState({ goals: {} }));
+    }, [selectedDate, weeklyGoalsVersion]);
 
     if (!data) return <div>Loading...</div>;
 
@@ -175,6 +198,14 @@ export default function ScoringDisplay() {
                                 const criteriaNode = renderCriteria(item);
                                 const fullId = `${categoryKey}-${item.id}`;
                                 const isSelected = selectedIds.has(fullId);
+
+                                // Weekly goal info from item.goals array
+                                const weeklyGoalConfig = item.goals?.find(g => g.type === 'weekly');
+                                const weeklyGoalId = weeklyGoalConfig?.id;
+                                const weeklyProgress = weeklyGoalId && weeklyGoalsState.goals[weeklyGoalId] ? weeklyGoalsState.goals[weeklyGoalId] : undefined;
+                                const weeklySegments = weeklyGoalConfig ? weeklyGoalConfig.targetCount : 0;
+                                const weeklyFilled = weeklyGoalConfig ? Math.min(weeklyProgress?.count ?? 0, weeklyGoalConfig.targetCount) : 0;
+
                                 const highlightStyle: React.CSSProperties = isSelected ? {
                                     backgroundColor: 'rgba(110, 231, 183, 0.14)',
                                     outline: '1px solid rgba(110, 231, 183, 0.28)',
@@ -193,7 +224,8 @@ export default function ScoringDisplay() {
                                                 score: item.score,
                                                 criteria: item.criteria ?? [],
                                                 baseType: item.baseType,
-                                                categoryKey
+                                                categoryKey,
+                                                weeklyGoalId: weeklyGoalId
                                             };
                                             e.dataTransfer.setData('application/json', JSON.stringify(payload));
                                         }}
@@ -202,7 +234,8 @@ export default function ScoringDisplay() {
                                             padding: '12px 16px',
                                             display: 'grid',
                                             gridTemplateColumns: '1fr auto',
-                                            gap: '8px',
+                                            rowGap: '6px',
+                                            columnGap: '8px',
                                             ...highlightStyle
                                         }}
                                     >
@@ -235,8 +268,35 @@ export default function ScoringDisplay() {
                                             {typeof item.score === 'number' && (
                                                 <Badge variant="pts">{item.score} pts</Badge>
                                             )}
+                                            {weeklyGoalConfig && (
+                                                <Badge variant="pts">{weeklyGoalConfig.rewardPoints} pts</Badge>
+                                            )}
                                             {criteriaNode}
                                         </RightStack>
+
+                                        {weeklyGoalConfig && weeklySegments > 0 && (
+                                            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
+                                                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeklySegments}, 1fr)`, gap: '4px', width: '100%', maxWidth: '260px' }}>
+                                                    {Array.from({ length: weeklySegments }).map((_, idx) => {
+                                                        const filled = idx < weeklyFilled;
+                                                        return (
+                                                            <div
+                                                                key={`${item.id}-seg-${idx}`}
+                                                                style={{
+                                                                    height: '6px',
+                                                                    borderRadius: '4px',
+                                                                    background: filled ? '#22c55e' : '#1f2937',
+                                                                    border: '1px solid #1f2937'
+                                                                }}
+                                                            />
+                                                        );
+                                                    })}
+                                                </div>
+                                                <span style={{ color: '#cbd5e1', fontSize: '12px', whiteSpace: 'nowrap', marginLeft: '8px' }}>
+                                                    {weeklyFilled}/{weeklyGoalConfig.targetCount}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}

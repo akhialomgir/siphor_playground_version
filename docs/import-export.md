@@ -59,6 +59,19 @@ The Export function exports **all** your daily records from IndexedDB to a JSON 
         ]
       }
     }
+  ],
+  "weeklyGoals": [
+    {
+      "weekKey": "week-2026-01-19",
+      "state": {
+        "goals": {
+          "exercise-weekly": {
+            "count": 3,
+            "rewarded": false
+          }
+        }
+      }
+    }
   ]
 }
 ```
@@ -69,12 +82,19 @@ The Export function exports **all** your daily records from IndexedDB to a JSON 
 - `version` (string): Export format version for future compatibility
 - `exportDate` (string): ISO timestamp of when the export was created
 - `data` (array): Array of daily records
+- `weeklyGoals` (array): Weekly goal progress keyed by week
 
 #### Each Daily Record
 - `dateKey` (string): Date in YYYY-MM-DD format
 - `state` (object): Contains deductions and gains for that day
   - `deductions` (array): All deduction items for that day
   - `gains` (array): All gain items for that day
+
+#### Weekly Goals Entry
+- `weekKey` (string): Key of the week, formatted as `week-YYYY-MM-DD` (Monday of that week)
+- `state.goals[goalId]`:
+  - `count` (number): Completions in that week
+  - `rewarded` (boolean): Whether the bonus was already granted
 
 #### Entry Fields (Deductions/Gains)
 Common fields:
