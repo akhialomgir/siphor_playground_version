@@ -875,8 +875,7 @@ export default function DragDropBox() {
             <div
                 key={`${list}-${entry.id}`}
                 style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr auto',
+                    display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
                     padding: '8px 10px',
@@ -886,8 +885,8 @@ export default function DragDropBox() {
             >
                 {isCustomExp ? (
                     editingExpenseId === entry.id ? (
-                        // Edit mode - single line layout
-                        <>
+                        // Edit mode - single line layout with flex
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                             <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb', minWidth: 'fit-content' }}>Expense</span>
                             <input
                                 type="text"
@@ -898,6 +897,7 @@ export default function DragDropBox() {
                                 onKeyDown={handleDescKeyDown}
                                 style={{
                                     flex: 1,
+                                    minWidth: '100px',
                                     padding: '6px 8px',
                                     borderRadius: '4px',
                                     border: '1px solid #334155',
@@ -954,7 +954,8 @@ export default function DragDropBox() {
                                     color: editable ? '#10b981' : '#64748b',
                                     cursor: editable ? 'pointer' : 'not-allowed',
                                     fontSize: '14px',
-                                    padding: '2px 6px'
+                                    padding: '2px 6px',
+                                    flexShrink: 0
                                 }}
                                 disabled={!editable}
                                 aria-label="Save"
@@ -973,14 +974,15 @@ export default function DragDropBox() {
                                     color: editable ? '#94a3b8' : '#64748b',
                                     cursor: editable ? 'pointer' : 'not-allowed',
                                     fontSize: '12px',
-                                    padding: '2px 6px'
+                                    padding: '2px 6px',
+                                    flexShrink: 0
                                 }}
                                 disabled={!editable}
                                 aria-label="Remove item"
                             >
                                 ✕
                             </button>
-                        </>
+                        </div>
                     ) : (
                         // Display mode - like other deductions
                         <>
