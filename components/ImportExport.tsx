@@ -1,11 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
-import { exportAllData, importAllData } from './dropStorage';
+import React, { useRef, useState } from 'react';
+import { exportAllData, importAllData, rebuildTotalScoreHistory } from './dropStorage';
 
 export default function ImportExport() {
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [showInitModal, setShowInitModal] = useState(false);
+    const [initValue, setInitValue] = useState('788');
+    const pressTimerRef = useRef<number | null>(null);
 
     const handleExport = async () => {
         try {
@@ -85,6 +88,37 @@ export default function ImportExport() {
         input.click();
     };
 
+    const startSecretPress = () => {
+        if (pressTimerRef.current) return;
+        pressTimerRef.current = window.setTimeout(() => {
+            setShowInitModal(true);
+            pressTimerRef.current = null;
+        }, 10000); // 10 seconds long press
+    };
+
+    const cancelSecretPress = () => {
+        if (pressTimerRef.current) {
+            window.clearTimeout(pressTimerRef.current);
+            pressTimerRef.current = null;
+        }
+    };
+
+    const handleSetInitial = async () => {
+        const value = parseInt(initValue, 10);
+        if (Number.isNaN(value)) {
+            alert('Please enter a valid number');
+            return;
+        }
+        try {
+            await rebuildTotalScoreHistory(value);
+            alert(`✓ Initial value set to ${value}. Totals recalculated.\nRefresh to see updated data.`);
+            window.location.reload();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to set initial value. Please try again.');
+        }
+    };
+
     const buttonBase: React.CSSProperties = {
         padding: '8px 16px',
         borderRadius: '8px',
@@ -101,6 +135,24 @@ export default function ImportExport() {
             gap: '8px',
             alignItems: 'center'
         }}>
+            {/* Hidden trigger to set initial total score; long press 10s */}
+            <button
+                onMouseDown={startSecretPress}
+                onMouseUp={cancelSecretPress}
+                onMouseLeave={cancelSecretPress}
+                title="Long press 10s to set initial total score"
+                style={{
+                    width: '10px',
+                    height: '10px',
+                    padding: 0,
+                    borderRadius: '9999px',
+                    border: '1px solid #0f172a',
+                    background: '#0b1220',
+                    opacity: 0.18,
+                    cursor: 'pointer'
+                }}
+            />
+
             <button
                 onClick={handleImport}
                 disabled={isImporting}
@@ -150,6 +202,78 @@ export default function ImportExport() {
             >
                 {isExporting ? 'Exporting...' : 'Export'}
             </button>
+
+            {showInitModal && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(0,0,0,0.55)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 9999
+                }}
+                    onClick={() => setShowInitModal(false)}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            background: '#0f172a',
+                            border: '1px solid #1f2937',
+                            borderRadius: '10px',
+                            padding: '20px',
+                            width: '320px',
+                            color: '#e5e7eb',
+                            boxShadow: '0 12px 30px rgba(0,0,0,0.45)'
+                        }}
+                    >
+                        <h3 style={{ margin: '0 0 12px', fontSize: '16px', fontWeight: 600 }}>Set Initial Total Score</h3>
+                        <p style={{ margin: '0 0 12px', fontSize: '13px', color: '#cbd5e1' }}>
+                            Set the initial value for 1970-01-01 and rebuild cumulative totals.
+                        </p>
+                        <input
+                            type="number"
+                            value={initValue}
+                            onChange={(e) => setInitValue(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                borderRadius: '6px',
+                                border: '1px solid #334155',
+                                background: '#0b1220',
+                                color: '#e5e7eb',
+                                fontSize: '14px',
+                                marginBottom: '14px'
+                            }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setShowInitModal(false)}
+                                style={{
+                                    ...buttonBase,
+                                    background: 'transparent',
+                                    color: '#94a3b8',
+                                    border: '1px solid #334155',
+                                    padding: '8px 12px'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSetInitial}
+                                style={{
+                                    ...buttonBase,
+                                    background: '#10b981',
+                                    color: '#ffffff',
+                                    padding: '8px 12px'
+                                }}
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

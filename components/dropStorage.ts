@@ -335,6 +335,32 @@ function calculateDayScore(state: PersistedState): number {
     return gainScore + deductionScore;
 }
 
+// Rebuild total score history with a new initial value
+export async function rebuildTotalScoreHistory(initialValue: number): Promise<TotalScoreHistory> {
+    const allStates = await listAllStates();
+
+    // Start with provided initial value at epoch date
+    const history: TotalScoreHistory = { '1970-01-01': initialValue };
+    let cumulative = initialValue;
+
+    if (allStates.length === 0) {
+        await saveTotalScoreHistory(history);
+        return history;
+    }
+
+    // Sort by date to accumulate in order
+    const sorted = allStates.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+
+    for (const { dateKey, state } of sorted) {
+        const dayScore = calculateDayScore(state);
+        cumulative += dayScore;
+        history[dateKey] = cumulative;
+    }
+
+    await saveTotalScoreHistory(history);
+    return history;
+}
+
 // Initialize total score history from existing data
 export async function initializeTotalScoreHistory(): Promise<TotalScoreHistory> {
     const allStates = await listAllStates();
