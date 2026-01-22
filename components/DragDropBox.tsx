@@ -135,7 +135,13 @@ export default function DragDropBox() {
     const [weekKey, setWeekKey] = useState<string>(() => getWeekKey(new Date().toISOString().slice(0, 10)));
     const [weeklyGoalsState, setWeeklyGoalsState] = useState<WeeklyGoalsState>({ goals: {} });
     const clearTimerRef = useRef<number | null>(null);
+    const notifyUpdateRef = useRef<(() => void) | null>(null);
+    const replaceAllRef = useRef<((ids: string[]) => void) | null>(null);
     const { replaceAll, notifyWeeklyGoalsUpdate } = useDroppedItems();
+
+    // Keep refs updated
+    notifyUpdateRef.current = notifyWeeklyGoalsUpdate;
+    replaceAllRef.current = replaceAll;
 
     const formatDate = (key: string) => {
         if (!key) return '';
@@ -177,7 +183,7 @@ export default function DragDropBox() {
 
     useEffect(() => {
         const ids = [...deductions, ...gains].map(e => e.id);
-        replaceAll(ids);
+        replaceAllRef.current?.(ids);
     }, [deductions, gains]);
 
     useEffect(() => {
@@ -185,23 +191,36 @@ export default function DragDropBox() {
         if (!editable) {
             setActiveGainTimerId(null);
             setActiveDeductionTimerId(null);
-            setGains(prev => prev.map(g => g.categoryKey === 'targetGains'
-                ? { ...g, timerRunning: false, timerStartTs: null }
-                : g
-            ));
-            setDeductions(prev => prev.map(d => isTimerDeduction(d.name)
-                ? { ...d, timerRunning: false, timerStartTs: null }
-                : d
-            ));
+            setGains(prev => {
+                const hasChanges = prev.some(g =>
+                    g.categoryKey === 'targetGains' && (g.timerRunning || g.timerStartTs)
+                );
+                if (!hasChanges) return prev;
+                return prev.map(g => g.categoryKey === 'targetGains'
+                    ? { ...g, timerRunning: false, timerStartTs: null }
+                    : g
+                );
+            });
+            setDeductions(prev => {
+                const hasChanges = prev.some(d =>
+                    isTimerDeduction(d.name) && (d.timerRunning || d.timerStartTs)
+                );
+                if (!hasChanges) return prev;
+                return prev.map(d => isTimerDeduction(d.name)
+                    ? { ...d, timerRunning: false, timerStartTs: null }
+                    : d
+                );
+            });
             return;
         }
 
-        const targetGains = gains.filter(g => g.categoryKey === 'targetGains');
-        const bottom = targetGains[targetGains.length - 1];
-        const bottomId = bottom?.id ?? null;
-        setActiveGainTimerId(bottomId);
-
+        // When editable, manage active timer
         setGains(prev => {
+            const targetGains = prev.filter(g => g.categoryKey === 'targetGains');
+            const bottom = targetGains[targetGains.length - 1];
+            const bottomId = bottom?.id ?? null;
+            setActiveGainTimerId(bottomId);
+
             const now = Date.now();
             let changed = false;
             const next = prev.map(g => {
@@ -225,13 +244,16 @@ export default function DragDropBox() {
             });
             return changed ? next : prev;
         });
-    }, [gains, editable, hydrated]);
 
-    useEffect(() => {
-        if (!hydrated || !editable) return;
-        const running = [...deductions].reverse().find(d => isTimerDeduction(d.name) && d.timerRunning);
-        setActiveDeductionTimerId(running?.id ?? null);
-    }, [deductions, editable, hydrated]);
+        setDeductions(prev => {
+            const running = [...prev].reverse().find(d => isTimerDeduction(d.name) && d.timerRunning);
+            setActiveDeductionTimerId(running?.id ?? null);
+            return prev;
+        });
+    }, [editable, hydrated]);
+
+    // Removed the separate deductions useEffect as it's now merged above
+
 
     useEffect(() => {
         if (!editable || !activeGainTimerId) return;
@@ -413,39 +435,36 @@ export default function DragDropBox() {
             });
         });
 
-        // Update all goals at once
-        setWeeklyGoalsState(prev => {
-            let hasChanges = false;
-            const newGoals = { ...prev.goals };
+        // Check if there are any changes before updating state
+        let shouldUpdate = false;
+        const newGoals = { ...weeklyGoalsState.goals };
 
-            updates.forEach(({ goalId, count, rewarded }) => {
-                const current = prev.goals[goalId] ?? { count: 0, rewarded: false };
+        updates.forEach(({ goalId, count, rewarded }) => {
+            const current = weeklyGoalsState.goals[goalId] ?? { count: 0, rewarded: false };
 
-                // Check if there's a change
-                if (current.count !== count || (rewarded && !current.rewarded)) {
-                    hasChanges = true;
-                    newGoals[goalId] = {
-                        count,
-                        rewarded: current.rewarded || rewarded
-                    };
-                    console.log('[DragDropBox] Updating weekly goal:', goalId, 'count:', count, 'rewarded:', current.rewarded || rewarded);
-                }
-            });
-
-            if (!hasChanges) {
-                return prev;
+            // Check if there's a change
+            if (current.count !== count || (rewarded && !current.rewarded)) {
+                shouldUpdate = true;
+                newGoals[goalId] = {
+                    count,
+                    rewarded: current.rewarded || rewarded
+                };
+                console.log('[DragDropBox] Updating weekly goal:', goalId, 'count:', count, 'rewarded:', current.rewarded || rewarded);
             }
+        });
 
+        if (shouldUpdate) {
             const nextState: WeeklyGoalsState = { goals: newGoals };
+            setWeeklyGoalsState(nextState);
             saveWeeklyGoals(weekKey, nextState);
 
             // Notify after state is updated
             console.log('[DragDropBox] Notifying weekly goals update');
-            setTimeout(() => notifyWeeklyGoalsUpdate(), 0);
-
-            return nextState;
-        });
-    }, [gains, hydrated, weekKey, notifyWeeklyGoalsUpdate]);
+            setTimeout(() => {
+                notifyUpdateRef.current?.();
+            }, 0);
+        }
+    }, [gains, hydrated, weekKey]);
 
     const triggerClear = () => {
         setDeductions([]);

@@ -14,7 +14,23 @@ const DroppedItemsContext = createContext<DroppedItemsContextValue | undefined>(
 export function DroppedItemsProvider({ children }: { children: React.ReactNode }) {
     const [ids, setIds] = useState<Set<string>>(new Set());
     const [weeklyGoalsVersion, setWeeklyGoalsVersion] = useState(0);
-    const replaceAll = useCallback((nextIds: string[]) => setIds(new Set(nextIds)), []);
+
+    const replaceAll = useCallback((nextIds: string[]) => {
+        setIds(prev => {
+            // Check if the ids are actually different
+            if (prev.size !== nextIds.length) {
+                return new Set(nextIds);
+            }
+            for (const id of nextIds) {
+                if (!prev.has(id)) {
+                    return new Set(nextIds);
+                }
+            }
+            // No change, return previous state
+            return prev;
+        });
+    }, []);
+
     const notifyWeeklyGoalsUpdate = useCallback(() => setWeeklyGoalsVersion(v => v + 1), []);
 
     const value = useMemo(() => ({
