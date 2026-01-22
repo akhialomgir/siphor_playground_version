@@ -147,14 +147,16 @@ export default function DragDropBox() {
 
     const handleDateSelect = (newDateKey: string) => {
         setSelectedDate(newDateKey);
-        setDeductions([]);
-        setGains([]);
-        setHydrated(false);
+        setHydrated(false); // This will trigger useEffect to reload data
     };
 
     const handleReturnToToday = () => {
         const today = new Date().toISOString().slice(0, 10);
         handleDateSelect(today);
+    };
+
+    const handleRefresh = () => {
+        setHydrated(false); // This will trigger useEffect to reload data from IndexedDB
     };
 
     useEffect(() => {
@@ -1042,15 +1044,48 @@ export default function DragDropBox() {
     return (
         <div className={styles.section} style={sectionStyle} onDragOver={allowDrop} onDrop={onDrop}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <div
-                    className={styles.dateChip}
-                    onClick={() => setShowCalendar(true)}
-                    style={{ cursor: 'pointer' }}
-                    role="button"
-                    tabIndex={0}
-                    title="Click to select date"
-                >
-                    {formatDate(dateKey) || '—'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                        className={styles.dateChip}
+                        onClick={() => setShowCalendar(true)}
+                        style={{ cursor: 'pointer' }}
+                        role="button"
+                        tabIndex={0}
+                        title="Click to select date"
+                    >
+                        {formatDate(dateKey) || '—'}
+                    </div>
+                    <button
+                        onClick={handleRefresh}
+                        style={{
+                            background: 'transparent',
+                            border: '1px solid #334155',
+                            color: '#94a3b8',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            transition: 'all 120ms ease',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            lineHeight: 1
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)';
+                            e.currentTarget.style.color = '#3b82f6';
+                            e.currentTarget.style.borderColor = '#3b82f6';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#94a3b8';
+                            e.currentTarget.style.borderColor = '#334155';
+                        }}
+                        aria-label="Refresh data"
+                        title="Refresh data"
+                    >
+                        ↻
+                    </button>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {!editable && (
