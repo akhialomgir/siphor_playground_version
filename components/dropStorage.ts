@@ -122,3 +122,36 @@ export async function listAllStates(): Promise<Array<{ dateKey: string; state: P
         return [];
     }
 }
+
+export interface ExportData {
+    version: string;
+    exportDate: string;
+    data: Array<{ dateKey: string; state: PersistedState }>;
+}
+
+export async function exportAllData(): Promise<ExportData> {
+    const allStates = await listAllStates();
+    return {
+        version: '1.0',
+        exportDate: new Date().toISOString(),
+        data: allStates
+    };
+}
+
+export async function importAllData(importData: ExportData): Promise<void> {
+    if (!importData.version || !Array.isArray(importData.data)) {
+        throw new Error('Invalid import data format');
+    }
+
+    const db = await openDb();
+
+    for (const { dateKey, state } of importData.data) {
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.put(state, dateKey);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error ?? new Error('Write failed'));
+        });
+    }
+}
