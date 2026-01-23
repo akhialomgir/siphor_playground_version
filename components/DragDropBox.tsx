@@ -375,6 +375,7 @@ export default function DragDropBox() {
             const normalizedGains = normalize(state.gains ?? []);
 
             // Validate weekly rewards: if a reward entry is missing its goal item, clear rewarded flag
+            // Also recalculate counts to ensure consistency
             const goalItemIds = new Set(normalizedGains
                 .filter(g => g.weeklyGoalId && !g.weeklyRewardId)
                 .map(g => g.weeklyGoalId));
@@ -383,6 +384,25 @@ export default function DragDropBox() {
                 let shouldUpdate = false;
                 const updatedGoals: Record<string, any> = { ...weekState.goals };
 
+                // Get all possible weekly goals from scoring data
+                const allWeeklyGoals = getWeeklyGoals();
+
+                // Recalculate count for each goal based on actual gains
+                allWeeklyGoals.forEach(goal => {
+                    const actualCount = normalizedGains.filter(g => g.weeklyGoalId === goal.id && !g.weeklyRewardId).length;
+                    const currentState = updatedGoals[goal.id] ?? { count: 0, rewarded: false };
+
+                    // Update count if it doesn't match actual items
+                    if (currentState.count !== actualCount) {
+                        updatedGoals[goal.id] = {
+                            ...currentState,
+                            count: actualCount
+                        };
+                        shouldUpdate = true;
+                    }
+                });
+
+                // Validate reward entries
                 goalItemIds.forEach(goalId => {
                     if (goalId && updatedGoals[goalId] && updatedGoals[goalId].rewarded) {
                         const hasRewardEntry = normalizedGains.some(g => g.weeklyRewardId && g.weeklyRewardId.includes(goalId));
@@ -396,6 +416,8 @@ export default function DragDropBox() {
                 if (shouldUpdate) {
                     saveWeeklyGoals(weekKey, { goals: updatedGoals });
                     setWeeklyGoalsState({ goals: updatedGoals });
+                } else {
+                    setWeeklyGoalsState(weekState);
                 }
             }).catch(() => { });
 
@@ -585,10 +607,14 @@ export default function DragDropBox() {
                 timerRunning: false,
                 timerStartTs: null,
                 timerPaused: false,
-                count: 1, // Initialize count for count-based deductions
-                customDescription: 'Expense', // Initialize custom description
-                customScore: 0 // Initialize custom score
+                count: 1 // Initialize count for count-based deductions
             };
+
+            // Only add custom expense properties for custom expense type
+            if (isCustomExpense(baseEntry.name)) {
+                baseEntry.customDescription = 'Expense';
+                baseEntry.customScore = 0;
+            }
 
             if (baseEntry.scoreType === 'deduction') {
                 setDeductions(prev => {
