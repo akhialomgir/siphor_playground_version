@@ -63,29 +63,34 @@ const PtsBadge = ({ value }: { value: number }) => (
 );
 
 function computeScore(entry: DroppedEntry): number {
-    // For custom expense
-    if (entry.scoreType === 'deduction' && isCustomExpense(entry.name)) {
-        return -(entry.customScore ?? 0); // Negative because it's a deduction
+    if (entry.scoreType === 'deduction') {
+        // If entry has fixedScore, it's a standard deduction item
+        if (entry.fixedScore !== undefined) {
+            return -Math.abs(entry.fixedScore * (entry.count ?? 1));
+        }
+        // If entry has criteria and baseType = 'duration', it's a timer-based deduction
+        if (entry.criteria && entry.criteria.length > 0 && entry.baseType === 'duration') {
+            const criteria = entry.criteria[0];
+            if (criteria && entry.timerSeconds !== undefined) {
+                const scorePerSecond = criteria.score / criteria.time;
+                return -Math.ceil(scorePerSecond * entry.timerSeconds);
+            }
+        }
+        // If entry has customScore (and no fixedScore), it's a custom expense
+        if (entry.customScore !== undefined) {
+            return -Math.abs(entry.customScore);
+        }
+        return 0;
     }
 
-    // For count-based deductions (fixed type)
-    if (entry.scoreType === 'deduction' && entry.categoryKey !== 'targetGains') {
-        const deducItem = scoringData.deductions.items.find(d => d.name === entry.name);
-        if (deducItem?.type === 'fixed') {
-            return -Math.abs((deducItem.score ?? 0) * (entry.count ?? 1));
-        }
-        // For timer-based deductions (duration type)
-        if (deducItem?.type === 'tiered' && deducItem.baseType === 'duration') {
-            return -Math.abs(getDeductionScore(deducItem as ScoringItem, entry.timerSeconds ?? 0));
-        }
-    }
-
-    // Original logic for gains
+    // For gains with criteria (tiered)
     if (entry.criteria && entry.criteria.length > 0) {
         const idx = Math.max(0, entry.selectedIndex ?? 0);
         const base = entry.criteria[idx]?.score ?? 0;
         return base + (entry.bonusActive ? 10 : 0);
     }
+
+    // For fixed score gains
     const base = entry.fixedScore ?? 0;
     return base + (entry.bonusActive ? 10 : 0);
 }

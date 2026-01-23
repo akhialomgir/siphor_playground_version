@@ -300,39 +300,39 @@ export async function saveTotalScoreHistory(history: TotalScoreHistory): Promise
 
 // Calculate total score for a specific date from stored data
 function calculateDayScore(state: PersistedState): number {
-    const deductionScore = state.deductions.reduce((sum, entry) => {
-        // Use the same logic as computeScore in DragDropBox
-        if (entry.scoreType !== 'deduction') return sum;
-
-        // Custom expense - check if it's actually a custom expense (non-zero or explicitly set)
-        // Only treat as custom expense if customScore is explicitly non-zero
-        if (entry.customScore !== undefined && entry.customScore !== 0) {
-            return sum - Math.abs(entry.customScore);
-        }
-
-        // Count-based or other deduction types - should be negative
-        if (entry.fixedScore !== undefined) {
-            return sum - Math.abs(entry.fixedScore * (entry.count ?? 1));
-        }
-
-        return sum;
-    }, 0);
-
-    const gainScore = state.gains.reduce((sum, entry) => {
+    // Separate gains and deductions for clarity
+    const gainScore = (state.gains ?? []).reduce((sum, entry) => {
         if (entry.scoreType !== 'gain') return sum;
 
-        // With criteria
+        // With criteria (tiered scoring)
         if (entry.criteria && entry.criteria.length > 0) {
             const idx = Math.max(0, entry.selectedIndex ?? 0);
             const base = entry.criteria[idx]?.score ?? 0;
             return sum + base + (entry.bonusActive ? 10 : 0);
         }
 
-        // Fixed score
+        // Fixed score (simple gain)
         const base = entry.fixedScore ?? 0;
         return sum + base + (entry.bonusActive ? 10 : 0);
     }, 0);
 
+    const deductionScore = (state.deductions ?? []).reduce((sum, entry) => {
+        if (entry.scoreType !== 'deduction') return sum;
+
+        // If entry has fixedScore, it's a standard deduction item (not custom expense)
+        if (entry.fixedScore !== undefined) {
+            return sum - Math.abs(entry.fixedScore * (entry.count ?? 1));
+        }
+
+        // If entry has customScore (and no fixedScore), it's a custom expense
+        if (entry.customScore !== undefined) {
+            return sum - Math.abs(entry.customScore);
+        }
+
+        return sum;
+    }, 0);
+
+    // Return today's net score: gains - deductions (deductions are already negative)
     return gainScore + deductionScore;
 }
 
