@@ -2,9 +2,23 @@ const DB_NAME = 'dragDropBox';
 const STORE_NAME = 'entries';
 const WEEKLY_STORE_NAME = 'weeklyGoals';
 const TOTAL_SCORE_STORE_NAME = 'totalScores';
-const DB_VERSION = 3;
+const BANK_STORE_NAME = 'bank';
+const DB_VERSION = 4;
 
 import type { ScoringCriteria } from '@/lib/scoring';
+
+export interface BankFixedDeposit {
+    id: string;
+    amount: number;
+    startDate: string;
+    maturityDate: string;
+    rate: number;
+}
+
+export interface BankState {
+    demand: number;
+    fixed: BankFixedDeposit[];
+}
 
 export interface PersistedEntry {
     id: string;
@@ -42,6 +56,8 @@ export interface WeeklyGoalsState {
 // Total score accumulation history: { dateKey: cumulativeTotal }
 export type TotalScoreHistory = Record<string, number>;
 
+const BANK_STATE_KEY = 'state';
+
 function openDb(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
         if (typeof window === 'undefined' || !window.indexedDB) {
@@ -60,6 +76,9 @@ function openDb(): Promise<IDBDatabase> {
             }
             if (oldVersion < 3 && !db.objectStoreNames.contains(TOTAL_SCORE_STORE_NAME)) {
                 db.createObjectStore(TOTAL_SCORE_STORE_NAME);
+            }
+            if (oldVersion < 4 && !db.objectStoreNames.contains(BANK_STORE_NAME)) {
+                db.createObjectStore(BANK_STORE_NAME);
             }
         };
         request.onsuccess = () => resolve(request.result);
@@ -82,6 +101,39 @@ export async function loadPersistedState(dateKey: string): Promise<PersistedStat
         });
     } catch (err) {
         return { deductions: [], gains: [] };
+    }
+}
+
+export async function loadBankState(): Promise<BankState> {
+    try {
+        const db = await openDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(BANK_STORE_NAME, 'readonly');
+            const store = tx.objectStore(BANK_STORE_NAME);
+            const req = store.get(BANK_STATE_KEY);
+            req.onsuccess = () => {
+                const payload = (req.result as BankState | undefined) ?? { demand: 0, fixed: [] };
+                resolve({ demand: payload.demand ?? 0, fixed: payload.fixed ?? [] });
+            };
+            req.onerror = () => reject(req.error ?? new Error('Read failed'));
+        });
+    } catch (err) {
+        return { demand: 0, fixed: [] };
+    }
+}
+
+export async function saveBankState(state: BankState): Promise<void> {
+    try {
+        const db = await openDb();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(BANK_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(BANK_STORE_NAME);
+            const req = store.put(state, BANK_STATE_KEY);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error ?? new Error('Write failed'));
+        });
+    } catch (err) {
+        // ignore persistence errors
     }
 }
 

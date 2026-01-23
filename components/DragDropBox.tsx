@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
-import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, getTotalScoreUpToDate, recalculateWeeklyGoalCount, type WeeklyGoalsState } from './dropStorage';
+import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, getTotalScoreUpToDate, recalculateWeeklyGoalCount, loadBankState, saveBankState, type WeeklyGoalsState, type BankState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
 import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals, type ScoringItem } from '@/lib/scoring';
@@ -57,6 +57,13 @@ const badgeBase: React.CSSProperties = {
 const badgeStyles = {
     pts: { backgroundColor: '#113227', color: '#6ee7b7' }
 } as const;
+
+const bankBadgeStyle: React.CSSProperties = {
+    ...badgeBase,
+    backgroundColor: '#0d1b2f',
+    color: '#cbd5e1',
+    border: '1px solid #1f2937'
+};
 
 const PtsBadge = ({ value }: { value: number }) => (
     <span style={{ ...badgeBase, ...badgeStyles.pts }}>{value} pts</span>
@@ -139,6 +146,10 @@ export default function DragDropBox() {
     const [weekKey, setWeekKey] = useState<string>(() => getWeekKey(new Date().toISOString().slice(0, 10)));
     const [weeklyGoalsState, setWeeklyGoalsState] = useState<WeeklyGoalsState>({ goals: {} });
     const [totalScore, setTotalScore] = useState<number>(0);
+    const [bankState, setBankState] = useState<BankState>({ demand: 0, fixed: [] });
+    const [bankHydrated, setBankHydrated] = useState(false);
+    const [bankAmount, setBankAmount] = useState<string>('');
+    const [bankMode, setBankMode] = useState<'demand' | 'term'>('demand');
     const clearTimerRef = useRef<number | null>(null);
     const notifyUpdateRef = useRef<(() => void) | null>(null);
     const replaceAllRef = useRef<((ids: string[]) => void) | null>(null);
@@ -160,6 +171,9 @@ export default function DragDropBox() {
     };
 
     const editable = isToday();
+
+    const BANK_TERM_DAYS = 30;
+    const BANK_MONTHLY_RATE = 0.05;
 
     const handleDateSelect = (newDateKey: string) => {
         setSelectedDate(newDateKey);
@@ -189,6 +203,20 @@ export default function DragDropBox() {
             setTotalScore(0);
         });
     }, [dateKey]);
+
+    useEffect(() => {
+        let mounted = true;
+        loadBankState().then(state => {
+            if (!mounted) return;
+            setBankState({ demand: state.demand ?? 0, fixed: state.fixed ?? [] });
+            setBankHydrated(true);
+        }).catch(() => {
+            if (mounted) setBankHydrated(true);
+        });
+        return () => {
+            mounted = false;
+        };
+    }, []);
 
     useEffect(() => {
         const ids = [...deductions, ...gains].map(e => e.id);
@@ -500,6 +528,36 @@ export default function DragDropBox() {
         });
     };
 
+    const updateBankState = (producer: (prev: BankState) => BankState) => {
+        setBankState(prev => {
+            const next = producer(prev);
+            saveBankState(next);
+            return next;
+        });
+    };
+
+    const handleBankUndoForDeduction = (entry: DroppedEntry) => {
+        if (entry.categoryKey !== 'bank') return;
+        const amount = Math.abs(entry.fixedScore ?? 0);
+        if (!amount) return;
+
+        if (entry.name === 'Bank demand deposit') {
+            updateBankState(prev => ({
+                ...prev,
+                demand: Math.max(0, (prev.demand ?? 0) - amount)
+            }));
+            return;
+        }
+
+        if (entry.name === 'Bank term deposit') {
+            const refId = entry.id.endsWith('-deduct') ? entry.id.replace(/-deduct$/, '') : entry.id;
+            updateBankState(prev => ({
+                ...prev,
+                fixed: prev.fixed.filter(f => f.id !== refId)
+            }));
+        }
+    };
+
     // 第550-593行，将第555行的 "const promise = " 删除，改为直接调用：
     const applyWeeklyProgress = (goalId: string): void => {
         const goal = getWeeklyGoalById(goalId);
@@ -801,6 +859,97 @@ export default function DragDropBox() {
                 return g;
             }));
         }
+    };
+
+    const calcDaysLeft = (maturityDate: string) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const target = new Date(`${maturityDate}T00:00:00`);
+        target.setHours(0, 0, 0, 0);
+        const diff = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        return diff;
+    };
+
+    const handleBankDeposit = () => {
+        if (!editable || !hydrated || !bankHydrated) return;
+
+        const amount = Number(bankAmount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return;
+        }
+
+        const currentDate = dateKey || new Date().toISOString().slice(0, 10);
+        const depositId = `bank-${Date.now()}`;
+
+        if (bankMode === 'demand') {
+            updateBankState(prev => ({
+                ...prev,
+                demand: (prev.demand ?? 0) + amount
+            }));
+        } else {
+            const startDate = currentDate;
+            const maturity = new Date(`${startDate}T00:00:00`);
+            maturity.setDate(maturity.getDate() + BANK_TERM_DAYS);
+            const maturityDate = maturity.toISOString().slice(0, 10);
+            const fixedEntry = { id: depositId, amount, startDate, maturityDate, rate: BANK_MONTHLY_RATE };
+            updateBankState(prev => ({
+                ...prev,
+                fixed: [...prev.fixed, fixedEntry]
+            }));
+        }
+
+        const deductionEntry: DroppedEntry = {
+            id: `${depositId}-deduct`,
+            name: bankMode === 'demand' ? 'Bank demand deposit' : 'Bank term deposit',
+            scoreType: 'deduction',
+            fixedScore: amount,
+            categoryKey: 'bank'
+        };
+
+        setDeductions(prev => {
+            const fresh = { ...deductionEntry, justAdded: true };
+            setTimeout(() => {
+                setDeductions(current => current.map(p => p.id === fresh.id ? { ...p, justAdded: false } : p));
+            }, 950);
+            return [...prev, fresh];
+        });
+
+        setBankAmount('');
+    };
+
+    const handleBankWithdraw = () => {
+        if (!editable || !hydrated || !bankHydrated) return;
+
+        const amount = Number(bankAmount);
+        if (!Number.isFinite(amount) || amount <= 0) return;
+
+        const available = bankState.demand ?? 0;
+        if (amount > available) return;
+
+        const withdrawId = `bank-withdraw-${Date.now()}`;
+
+        updateBankState(prev => ({
+            ...prev,
+            demand: Math.max(0, (prev.demand ?? 0) - amount)
+        }));
+
+        const gainEntry: DroppedEntry = {
+            id: `${withdrawId}-gain`,
+            name: 'Bank withdrawal',
+            scoreType: 'gain',
+            fixedScore: amount,
+            categoryKey: 'bank'
+        };
+
+        setGains(prev => {
+            const fresh = { ...gainEntry, justAdded: true };
+            setTimeout(() => {
+                setGains(current => current.map(p => p.id === fresh.id ? { ...p, justAdded: false } : p));
+            }, 950);
+            return [...prev, fresh];
+        });
+
+        setBankAmount('');
     };
 
     const sectionStyle: React.CSSProperties = {
@@ -1286,6 +1435,7 @@ export default function DragDropBox() {
                                 onClick={() => {
                                     if (!editable) return;
                                     if (list === 'deduction') {
+                                        handleBankUndoForDeduction(entry);
                                         setDeductions(prev => prev.filter(p => p.id !== entry.id));
                                     } else {
                                         // If this is a weekly goal item, recalculate the goal count
@@ -1395,6 +1545,12 @@ export default function DragDropBox() {
             </div>
         );
     };
+
+    const totalFixedAmount = bankState.fixed.reduce((acc, item) => acc + (item.amount ?? 0), 0);
+    const bankActionDisabled = !editable || !hydrated || !bankHydrated;
+    const parsedBankAmount = Number(bankAmount);
+    const canDeposit = !bankActionDisabled && Number.isFinite(parsedBankAmount) && parsedBankAmount > 0;
+    const canWithdraw = !bankActionDisabled && Number.isFinite(parsedBankAmount) && parsedBankAmount > 0 && parsedBankAmount <= (bankState.demand ?? 0);
 
     return (
         <div className={styles.section} style={sectionStyle} onDragOver={allowDrop} onDrop={onDrop}>
@@ -1547,6 +1703,138 @@ export default function DragDropBox() {
                         })()} pts
                     </span>
                 </div>
+            </div>
+
+            <div style={{ marginTop: '14px', border: '1px solid #1f2937', borderRadius: '10px', padding: '12px', background: '#0b1220' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontWeight: 600, color: '#e5e7eb' }}>Bank</span>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span style={bankBadgeStyle}>Demand {Math.round(bankState.demand).toLocaleString('en-US')} pts</span>
+                        <span style={{ ...bankBadgeStyle, backgroundColor: '#121826' }}>Term {Math.round(totalFixedAmount).toLocaleString('en-US')} pts</span>
+                    </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <input
+                            type="text"
+                            inputMode="decimal"
+                            pattern="[0-9]*"
+                            value={bankAmount}
+                            onChange={(e) => setBankAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                            placeholder="Amount"
+                            disabled={bankActionDisabled}
+                            style={{
+                                width: '140px',
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #334155',
+                                background: bankActionDisabled ? '#111827' : '#0f1625',
+                                color: bankActionDisabled ? '#475569' : '#e5e7eb',
+                                fontSize: '13px',
+                                outline: 'none',
+                                MozAppearance: 'textfield'
+                            }}
+                        />
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#0f1625', padding: '4px', borderRadius: '8px', border: '1px solid #1f2937' }}>
+                            <button
+                                onClick={() => setBankMode('demand')}
+                                disabled={bankActionDisabled}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: bankMode === 'demand' ? '#113227' : 'transparent',
+                                    color: bankMode === 'demand' ? '#6ee7b7' : '#94a3b8',
+                                    cursor: bankActionDisabled ? 'not-allowed' : 'pointer',
+                                    fontWeight: 600,
+                                    fontSize: '12px'
+                                }}
+                                aria-label="Demand deposit"
+                            >
+                                Demand
+                            </button>
+                            <button
+                                onClick={() => setBankMode('term')}
+                                disabled={bankActionDisabled}
+                                style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: bankMode === 'term' ? '#113227' : 'transparent',
+                                    color: bankMode === 'term' ? '#6ee7b7' : '#94a3b8',
+                                    cursor: bankActionDisabled ? 'not-allowed' : 'pointer',
+                                    fontWeight: 600,
+                                    fontSize: '12px'
+                                }}
+                                aria-label="Term deposit"
+                            >
+                                30d term
+                            </button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                                onClick={handleBankDeposit}
+                                disabled={!canDeposit}
+                                style={{
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #334155',
+                                    background: !canDeposit ? '#111827' : '#113227',
+                                    color: !canDeposit ? '#475569' : '#6ee7b7',
+                                    fontWeight: 700,
+                                    fontSize: '12px',
+                                    cursor: !canDeposit ? 'not-allowed' : 'pointer'
+                                }}
+                                aria-label="Deposit into bank"
+                            >
+                                Deposit
+                            </button>
+                            <button
+                                onClick={handleBankWithdraw}
+                                disabled={!canWithdraw}
+                                style={{
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #334155',
+                                    background: !canWithdraw ? '#111827' : '#22130f',
+                                    color: !canWithdraw ? '#475569' : '#fbbf24',
+                                    fontWeight: 700,
+                                    fontSize: '12px',
+                                    cursor: !canWithdraw ? 'not-allowed' : 'pointer'
+                                }}
+                                aria-label="Withdraw from bank"
+                            >
+                                Withdraw
+                            </button>
+                        </div>
+                    </div>
+                    <div style={{ textAlign: 'right', color: '#94a3b8', fontSize: '12px' }}>
+                        {bankMode === 'term' ? `30d · ${Math.round(BANK_MONTHLY_RATE * 100)}% monthly` : 'On-call (no interest)'}
+                    </div>
+                </div>
+                {bankHydrated && bankState.fixed.length > 0 && (
+                    <div style={{ marginTop: '10px', borderTop: '1px solid #1f2937', paddingTop: '8px', display: 'grid', gap: '8px' }}>
+                        {bankState.fixed.map(item => {
+                            const daysLeft = calcDaysLeft(item.maturityDate);
+                            const maturedAmount = Math.round(item.amount * (1 + item.rate));
+                            return (
+                                <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '8px', alignItems: 'center', color: '#e5e7eb', fontSize: '12px', background: '#0f1625', borderRadius: '8px', padding: '8px', border: '1px solid #1f2937' }}>
+                                    <span style={{ fontWeight: 600 }}>Term {item.amount.toLocaleString('en-US')}</span>
+                                    <span style={{ color: '#94a3b8' }}>Maturity {item.maturityDate}</span>
+                                    <span style={{ color: daysLeft <= 0 ? '#6ee7b7' : '#fbbf24', textAlign: 'right' }}>
+                                        {daysLeft <= 0 ? `Ready +${(item.rate * 100).toFixed(1)}%` : `${daysLeft}d left`}
+                                    </span>
+                                    <span style={{ color: '#94a3b8' }}>Start {item.startDate}</span>
+                                    <span style={{ color: '#94a3b8' }}>Expected {maturedAmount.toLocaleString('en-US')}</span>
+                                    <span style={{ color: '#94a3b8', textAlign: 'right' }}>Rate {(item.rate * 100).toFixed(1)}%</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {!bankHydrated && (
+                    <div style={{ marginTop: '8px', color: '#94a3b8', fontSize: '12px' }}>Loading bank…</div>
+                )}
             </div>
 
             <button
