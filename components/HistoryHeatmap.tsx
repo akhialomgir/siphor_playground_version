@@ -45,7 +45,7 @@ function computeEntryScore(entry: PersistedEntry): number {
         const base = entry.criteria[idx]?.score ?? 0;
         return base + (entry.bonusActive ? 10 : 0);
     }
-    
+
     // For fixed score gains
     const base = entry.fixedScore ?? 0;
     return base + (entry.bonusActive ? 10 : 0);
