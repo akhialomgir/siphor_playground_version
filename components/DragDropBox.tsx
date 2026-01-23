@@ -179,11 +179,8 @@ export default function DragDropBox() {
         const today = new Date().toISOString().slice(0, 10);
         const key = getWeekKey(dateKey || today);
         setWeekKey(key);
-        loadWeeklyGoals(key).then(state => {
-            setWeeklyGoalsState(state);
-        }).catch(() => {
-            setWeeklyGoalsState({ goals: {} });
-        });
+        // Don't load weeklyGoals here - let hydration handle recalculation
+        // This avoids race conditions where stale data overwrites recalculated values
 
         // Load total score up to yesterday
         getTotalScoreUpToDate(dateKey || today).then(total => {
@@ -424,7 +421,16 @@ export default function DragDropBox() {
                 } else {
                     setWeeklyGoalsState(weekState);
                 }
-            }).catch(() => { });
+            }).catch(() => {
+                // If loadWeeklyGoals fails, still set a state based on recalculated counts
+                const allWeeklyGoals = getWeeklyGoals();
+                const calculatedGoals: Record<string, any> = {};
+                allWeeklyGoals.forEach(goal => {
+                    const actualCount = normalizedGains.filter(g => g.weeklyGoalId === goal.id && !g.weeklyRewardId).length;
+                    calculatedGoals[goal.id] = { count: actualCount, rewarded: false };
+                });
+                setWeeklyGoalsState({ goals: calculatedGoals });
+            });
 
             setGains(normalizedGains);
             setHydrated(true);
