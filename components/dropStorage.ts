@@ -304,9 +304,10 @@ function calculateDayScore(state: PersistedState): number {
         // Use the same logic as computeScore in DragDropBox
         if (entry.scoreType !== 'deduction') return sum;
 
-        // Custom expense - should be negative
-        if (entry.customScore !== undefined) {
-            return sum - Math.abs(entry.customScore ?? 0);
+        // Custom expense - check if it's actually a custom expense (non-zero or explicitly set)
+        // Only treat as custom expense if customScore is explicitly non-zero
+        if (entry.customScore !== undefined && entry.customScore !== 0) {
+            return sum - Math.abs(entry.customScore);
         }
 
         // Count-based or other deduction types - should be negative
