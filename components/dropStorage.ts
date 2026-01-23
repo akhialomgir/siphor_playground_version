@@ -324,6 +324,15 @@ function calculateDayScore(state: PersistedState): number {
             return sum - Math.abs(entry.fixedScore * (entry.count ?? 1));
         }
 
+        // If entry has criteria and baseType = 'duration', it's a timer-based deduction (like game)
+        if (entry.criteria && entry.criteria.length > 0 && entry.baseType === 'duration') {
+            const criteria = entry.criteria[0];
+            if (criteria && entry.timerSeconds !== undefined) {
+                const scorePerSecond = criteria.score / criteria.time;
+                return sum - Math.ceil(scorePerSecond * entry.timerSeconds);
+            }
+        }
+
         // If entry has customScore (and no fixedScore), it's a custom expense
         if (entry.customScore !== undefined) {
             return sum - Math.abs(entry.customScore);
