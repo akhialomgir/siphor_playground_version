@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
-import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, getTotalScoreUpToDate, type WeeklyGoalsState } from './dropStorage';
+import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, getTotalScoreUpToDate, recalculateWeeklyGoalCount, type WeeklyGoalsState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
 import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals, type ScoringItem } from '@/lib/scoring';
@@ -524,11 +524,11 @@ export default function DragDropBox() {
 
     // Recalculate weekly goal count based on current gains
     // This ensures sync by counting actual items instead of incrementing/decrementing
-    const recalculateWeeklyGoalCount = (goalId: string, itemName: string) => {
+    const updateLocalWeeklyGoalState = (goalId: string) => {
         const goal = getWeeklyGoalById(goalId);
         if (!goal || !weekKey) return;
 
-        // Count all items with this weeklyGoalId (excluding reward entries)
+        // 统计当前 gains 中该目标的项目数（排除奖励项）
         const count = gains.filter(g => g.weeklyGoalId === goalId && !g.weeklyRewardId).length;
 
         setWeeklyGoalsState(prev => {
@@ -547,41 +547,43 @@ export default function DragDropBox() {
         });
     };
 
-    const applyWeeklyProgress = (goalId: string) => {
+    // 第550-593行，将第555行的 "const promise = " 删除，改为直接调用：
+    const applyWeeklyProgress = (goalId: string): void => {
         const goal = getWeeklyGoalById(goalId);
         if (!goal || !weekKey) return;
 
-        // Count how many items exist with this goalId (excluding reward entries)
-        const count = gains.filter(g => g.weeklyGoalId === goalId && !g.weeklyRewardId).length;
-        const shouldReward = count >= goal.targetCount;
+        // 使用导入的异步函数重新计算整周数据
+        recalculateWeeklyGoalCount(weekKey, goalId).then(newCount => {
+            const shouldReward = newCount >= goal.targetCount;
 
-        setWeeklyGoalsState(prev => {
-            const current = prev.goals[goalId] ?? { count: 0, rewarded: false };
-            const nextState: WeeklyGoalsState = {
-                goals: {
-                    ...prev.goals,
-                    [goalId]: { count, rewarded: current.rewarded || (shouldReward && !current.rewarded) }
-                }
-            };
-
-            saveWeeklyGoals(weekKey, nextState);
-
-            // Grant reward if just reached target and not yet rewarded
-            if (shouldReward && !current.rewarded) {
-                const rewardId = `weekly-${goalId}-${weekKey}`;
-                const rewardEntry: DroppedEntry = {
-                    id: rewardId,
-                    name: `${goal.name} weekly bonus`,
-                    scoreType: 'gain',
-                    fixedScore: goal.rewardPoints,
-                    categoryKey: 'weeklyGoal',
-                    weeklyGoalId: goalId,
-                    weeklyRewardId: rewardId
+            setWeeklyGoalsState(prev => {
+                const current = prev.goals[goalId] ?? { count: 0, rewarded: false };
+                const nextState: WeeklyGoalsState = {
+                    goals: {
+                        ...prev.goals,
+                        [goalId]: { count: newCount, rewarded: current.rewarded || shouldReward }
+                    }
                 };
-                setGains(prev => [...prev, rewardEntry]);
-            }
 
-            return nextState;
+                saveWeeklyGoals(weekKey, nextState);
+
+                // 如果刚达到目标且未奖励，则授予奖励
+                if (shouldReward && !current.rewarded) {
+                    const rewardId = `weekly-${goalId}-${weekKey}`;
+                    const rewardEntry: DroppedEntry = {
+                        id: rewardId,
+                        name: `${goal.name} weekly bonus`,
+                        scoreType: 'gain',
+                        fixedScore: goal.rewardPoints,
+                        categoryKey: 'weeklyGoal',
+                        weeklyGoalId: goalId,
+                        weeklyRewardId: rewardId
+                    };
+                    setGains(prev => [...prev, rewardEntry]);
+                }
+
+                return nextState;
+            });
         });
     };
 
@@ -1303,8 +1305,35 @@ export default function DragDropBox() {
                                     if (list === 'deduction') {
                                         setDeductions(prev => prev.filter(p => p.id !== entry.id));
                                     } else {
-                                        // If this is a weekly reward entry, reset the rewarded flag for that goal
-                                        if (entry.weeklyRewardId) {
+                                        // If this is a weekly goal item, recalculate the goal count
+                                        if (entry.weeklyGoalId && !entry.weeklyRewardId) {
+                                            const goalId = entry.weeklyGoalId;
+                                            // First remove the entry
+                                            setGains(prev => prev.filter(p => p.id !== entry.id));
+                                            // Then recalculate the week's total
+                                            if (weekKey) {
+                                                recalculateWeeklyGoalCount(weekKey, goalId).then(newCount => {
+                                                    const goal = getWeeklyGoalById(goalId);
+                                                    if (goal) {
+                                                        setWeeklyGoalsState(prev => {
+                                                            const current = prev.goals[goalId] ?? { count: 0, rewarded: false };
+                                                            const nextState: WeeklyGoalsState = {
+                                                                goals: {
+                                                                    ...prev.goals,
+                                                                    [goalId]: {
+                                                                        count: newCount,
+                                                                        rewarded: current.rewarded
+                                                                    }
+                                                                }
+                                                            };
+                                                            saveWeeklyGoals(weekKey, nextState);
+                                                            return nextState;
+                                                        });
+                                                    }
+                                                });
+                                            }
+                                        } else if (entry.weeklyRewardId) {
+                                            // If this is a weekly reward entry, reset the rewarded flag for that goal
                                             setWeeklyGoalsState(prev => {
                                                 // Extract goalId from weeklyRewardId: "weekly-<goalId>-week-..."
                                                 const parts = entry.weeklyRewardId!.split('-');
@@ -1323,9 +1352,12 @@ export default function DragDropBox() {
                                                 if (weekKey) saveWeeklyGoals(weekKey, nextState);
                                                 return nextState;
                                             });
+                                            // Remove the reward entry
+                                            setGains(prev => prev.filter(p => p.id !== entry.id));
+                                        } else {
+                                            // Remove any other entry
+                                            setGains(prev => prev.filter(p => p.id !== entry.id));
                                         }
-                                        // Remove the entry (weekly goal items or rewards)
-                                        setGains(prev => prev.filter(p => p.id !== entry.id));
                                     }
                                 }}
                                 style={{

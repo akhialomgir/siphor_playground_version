@@ -449,3 +449,29 @@ export async function updateTotalScoreForDate(dateKey: string, dayScore: number)
 
     await saveTotalScoreHistory(history);
 }
+
+// Recalculate weekly goal count by checking all items in the week
+export async function recalculateWeeklyGoalCount(weekKey: string, goalId: string): Promise<number> {
+    const allStates = await listAllStates();
+
+    // Extract week start date from weekKey (format: "week-YYYY-MM-DD")
+    const weekStart = weekKey.replace('week-', '');
+    const weekStartDate = new Date(`${weekStart}T00:00:00`);
+    const weekEndDate = new Date(weekStartDate);
+    weekEndDate.setDate(weekEndDate.getDate() + 7); // One week = 7 days
+
+    // Count all items with this goalId across entire week (excluding reward entries)
+    let totalCount = 0;
+    for (const { dateKey, state } of allStates) {
+        const itemDate = new Date(`${dateKey}T00:00:00`);
+        // Check if date is within this week
+        if (itemDate >= weekStartDate && itemDate < weekEndDate) {
+            const count = (state.gains ?? []).filter(
+                g => g.weeklyGoalId === goalId && !g.weeklyRewardId
+            ).length;
+            totalCount += count;
+        }
+    }
+
+    return totalCount;
+}
