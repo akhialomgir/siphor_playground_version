@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
-import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, getTotalScoreUpToDate, recalculateWeeklyGoalCount, loadBankState, saveBankState, type WeeklyGoalsState, type BankState } from './dropStorage';
+import { clearPersistedState, loadPersistedState, loadWeeklyGoals, savePersistedState, saveWeeklyGoals, getTotalScoreUpToDate, recalculateWeeklyGoalCount, loadBankState, saveBankState, updateTotalScoreForDate, type WeeklyGoalsState, type BankState } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
 import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals, type ScoringItem } from '@/lib/scoring';
@@ -217,6 +217,13 @@ export default function DragDropBox() {
             mounted = false;
         };
     }, []);
+
+    // When date changes, refresh cumulative total based on updated history
+    useEffect(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const target = dateKey || today;
+        getTotalScoreUpToDate(target).then(total => setTotalScore(total)).catch(() => setTotalScore(0));
+    }, [dateKey]);
 
     useEffect(() => {
         const ids = [...deductions, ...gains].map(e => e.id);
@@ -474,6 +481,15 @@ export default function DragDropBox() {
     useEffect(() => {
         if (!hydrated || !dateKey) return;
         savePersistedState(dateKey, deductions, gains);
+    }, [deductions, gains, hydrated, dateKey]);
+
+    // Keep total score history in sync so cross-day cumulative totals stay correct
+    useEffect(() => {
+        if (!hydrated || !dateKey) return;
+        const dayScore = gains.reduce((acc, e) => acc + computeScore(e), 0) + deductions.reduce((acc, e) => acc + computeScore(e), 0);
+        updateTotalScoreForDate(dateKey, dayScore).catch(() => {
+            // ignore history update failures to avoid blocking UI
+        });
     }, [deductions, gains, hydrated, dateKey]);
 
     // Note: Weekly goal recalculation is now handled explicitly in onDrop and remove handlers
