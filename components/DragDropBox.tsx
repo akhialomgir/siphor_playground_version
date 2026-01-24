@@ -654,6 +654,7 @@ export default function DragDropBox() {
             if (isCustomExpense(baseEntry.name)) {
                 baseEntry.customDescription = 'Expense';
                 baseEntry.customScore = 0;
+                baseEntry.fixedScore = undefined;
             }
 
             if (baseEntry.scoreType === 'deduction') {
