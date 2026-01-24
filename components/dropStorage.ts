@@ -272,18 +272,21 @@ export interface ExportData {
     data: Array<{ dateKey: string; state: PersistedState }>;
     weeklyGoals?: Array<{ weekKey: string; state: WeeklyGoalsState }>;
     bankState?: BankState;
+    totalScoreHistory?: TotalScoreHistory;
 }
 
 export async function exportAllData(): Promise<ExportData> {
     const allStates = await listAllStates();
     const weeklyGoals = await listAllWeeklyGoals();
     const bankState = await loadBankState();
+    const totalScoreHistory = await loadTotalScoreHistory();
     return {
         version: '1.0',
         exportDate: new Date().toISOString(),
         data: allStates,
         weeklyGoals,
-        bankState
+        bankState,
+        totalScoreHistory
     };
 }
 
@@ -319,6 +322,11 @@ export async function importAllData(importData: ExportData): Promise<void> {
     // Bank state is optional for backward compatibility
     if (importData.bankState) {
         await saveBankState(importData.bankState);
+    }
+
+    // Total score history is optional for backward compatibility
+    if (importData.totalScoreHistory) {
+        await saveTotalScoreHistory(importData.totalScoreHistory);
     }
 }
 // Load total score history
