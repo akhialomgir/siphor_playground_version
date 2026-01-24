@@ -1224,9 +1224,9 @@ export default function DragDropBox() {
                 ) : (
                     // Regular entry layout
                     <>
-                        <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>{entry.name}</span>
+                        <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb', flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.name}</span>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                             {/* Count buttons for count-based deductions */}
                             {isCountBased && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
