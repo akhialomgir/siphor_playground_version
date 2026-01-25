@@ -40,6 +40,7 @@ export interface PersistedEntry {
     customScore?: number; // for custom expense score
     weeklyGoalId?: string;
     weeklyRewardId?: string; // track granted reward entry ID
+    weeklyRewardBonus?: number; // inline weekly bonus attached to the entry
 }
 
 export type PersistedState = { deductions: PersistedEntry[]; gains: PersistedEntry[] };

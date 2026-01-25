@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import scoringData from '@/data/scoring.json';
 import { useDroppedItems } from './DroppedItemsContext';
 import { useSelectedDate } from './DateContext';
-import { loadWeeklyGoals, type WeeklyGoalsState } from './dropStorage';
-import { getWeekKey } from '@/lib/scoring';
+import { getWeekKey, getWeeklyGoals } from '@/lib/scoring';
 
 interface Criteria {
     time: number;
@@ -37,8 +36,8 @@ interface ScoringCategory {
 
 export default function ScoringDisplay() {
     const [data, setData] = useState<Record<string, ScoringCategory> | null>(null);
-    const [weeklyGoalsState, setWeeklyGoalsState] = useState<WeeklyGoalsState>({ goals: {} });
-    const { selectedIds, weeklyGoalsVersion } = useDroppedItems();
+    const [weeklyGoalsState, setWeeklyGoalsState] = useState<Record<string, { count: number; rewarded: boolean }>>({});
+    const { selectedIds, weeklyGoalsState: sharedWeeklyGoalsState } = useDroppedItems();
     const { selectedDate } = useSelectedDate();
 
     // Load scoring data on component mount
@@ -46,15 +45,12 @@ export default function ScoringDisplay() {
         setData(scoringData as unknown as Record<string, ScoringCategory>);
     }, []);
 
+    // Sync with shared weekly goals computed in DragDropBox; fallback to existing state for SSR safety
     useEffect(() => {
-        const today = new Date().toISOString().slice(0, 10);
-        const key = getWeekKey(selectedDate || today);
-        console.log('[ScoringDisplay] Loading weekly goals, key:', key, 'version:', weeklyGoalsVersion);
-        loadWeeklyGoals(key).then(state => {
-            console.log('[ScoringDisplay] Loaded state:', state);
-            setWeeklyGoalsState(state);
-        }).catch(() => setWeeklyGoalsState({ goals: {} }));
-    }, [selectedDate, weeklyGoalsVersion]);
+        if (sharedWeeklyGoalsState && sharedWeeklyGoalsState.goals) {
+            setWeeklyGoalsState(sharedWeeklyGoalsState.goals);
+        }
+    }, [sharedWeeklyGoalsState, selectedIds, selectedDate]);
 
     if (!data) return <div>Loading...</div>;
 
@@ -202,7 +198,7 @@ export default function ScoringDisplay() {
                                 // Weekly goal info from item.goals array
                                 const weeklyGoalConfig = item.goals?.find(g => g.type === 'weekly');
                                 const weeklyGoalId = weeklyGoalConfig?.id;
-                                const weeklyProgress = weeklyGoalId && weeklyGoalsState.goals[weeklyGoalId] ? weeklyGoalsState.goals[weeklyGoalId] : undefined;
+                                const weeklyProgress = weeklyGoalId && weeklyGoalsState[weeklyGoalId] ? weeklyGoalsState[weeklyGoalId] : undefined;
                                 const weeklySegments = weeklyGoalConfig ? weeklyGoalConfig.targetCount : 0;
                                 const weeklyFilled = weeklyGoalConfig ? Math.min(weeklyProgress?.count ?? 0, weeklyGoalConfig.targetCount) : 0;
 

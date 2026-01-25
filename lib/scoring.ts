@@ -81,14 +81,21 @@ export function getWeeklyGoalForItem(name: string): WeeklyGoal | undefined {
     return goal;
 }
 
+function formatDateLocal(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
 export function getWeekKey(dateStr: string): string {
     const base = new Date(`${dateStr}T00:00:00`);
-    // Use Monday as the start of the week
+    // Use Sunday as the start of the week (local time)
     const day = base.getDay(); // 0 (Sun) - 6 (Sat)
-    const diff = (day + 6) % 7; // days since Monday
+    const diff = day; // days since Sunday
     const weekStart = new Date(base);
     weekStart.setDate(base.getDate() - diff);
-    const iso = weekStart.toISOString().slice(0, 10);
+    const iso = formatDateLocal(weekStart); // avoid TZ shift from toISOString
     return `week-${iso}`;
 }
 
