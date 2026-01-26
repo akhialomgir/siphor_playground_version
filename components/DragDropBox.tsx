@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './DragDropBox.module.css';
 import { useDroppedItems } from './DroppedItemsContext';
-import { clearPersistedState, loadPersistedState, savePersistedState, getTotalScoreUpToDate, loadBankState, saveBankState, updateTotalScoreForDate, listAllStates, type WeeklyGoalsState, type BankState } from './dropStorage';
+import { clearPersistedState, loadPersistedState, savePersistedState, getTotalScoreUpToDate, loadBankState, saveBankState, updateTotalScoreForDate, listAllStates, type WeeklyGoalsState, type BankState, getBountyPointsForDate } from './dropStorage';
 import Calendar from './Calendar';
 import { useSelectedDate } from './DateContext';
 import { getFocusScore, getFocusCriteria, getDeductionScore, getWeekKey, getWeeklyGoalById, getWeeklyGoals, type ScoringItem } from '@/lib/scoring';
@@ -145,13 +145,14 @@ export default function DragDropBox() {
     const [focusTime, setFocusTime] = useState<number>(0);
     const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
     const [totalScore, setTotalScore] = useState<number>(0);
+    const [bountyPoints, setBountyPoints] = useState<number>(0);
     const [bankState, setBankState] = useState<BankState>({ demand: 0, fixed: [] });
     const [bankHydrated, setBankHydrated] = useState(false);
     const [bankAmount, setBankAmount] = useState<string>('');
     const [bankMode, setBankMode] = useState<'demand' | 'term'>('demand');
     const clearTimerRef = useRef<number | null>(null);
     const replaceAllRef = useRef<((ids: string[]) => void) | null>(null);
-    const { replaceAll, setWeeklyGoalsState, weeklyGoalsState } = useDroppedItems();
+    const { replaceAll, setWeeklyGoalsState, weeklyGoalsState, bountyVersion } = useDroppedItems();
 
     // Keep refs updated
     replaceAllRef.current = replaceAll;
@@ -199,6 +200,16 @@ export default function DragDropBox() {
             setTotalScore(0);
         });
     }, [dateKey]);
+
+    useEffect(() => {
+        if (!dateKey) {
+            setBountyPoints(0);
+            return;
+        }
+        getBountyPointsForDate(dateKey)
+            .then(setBountyPoints)
+            .catch(() => setBountyPoints(0));
+    }, [dateKey, bountyVersion]);
 
     // Aggregate weekly goal progress across the entire week (all days), and merge current-day in-memory gains
     useEffect(() => {
@@ -490,11 +501,11 @@ export default function DragDropBox() {
     // Keep total score history in sync so cross-day cumulative totals stay correct
     useEffect(() => {
         if (!hydrated || !dateKey) return;
-        const dayScore = gains.reduce((acc, e) => acc + computeScore(e), 0) + deductions.reduce((acc, e) => acc + computeScore(e), 0);
+        const dayScore = gains.reduce((acc, e) => acc + computeScore(e), 0) + deductions.reduce((acc, e) => acc + computeScore(e), 0) + bountyPoints;
         updateTotalScoreForDate(dateKey, dayScore).catch(() => {
             // ignore history update failures to avoid blocking UI
         });
-    }, [deductions, gains, hydrated, dateKey]);
+    }, [deductions, gains, hydrated, dateKey, bountyPoints]);
 
     const triggerClear = () => {
         setDeductions([]);
@@ -1551,16 +1562,23 @@ export default function DragDropBox() {
                 <span style={{ color: '#94a3b8', fontSize: '12px' }}>Total</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <PtsBadge value={totalScore} />
-                    <span style={{
-                        color: '#64748b',
-                        fontSize: '11px',
-                        fontWeight: 500
-                    }}>
-                        {(() => {
-                            const dayScore = (gains.reduce((acc, e) => acc + computeScore(e), 0)) + (deductions.reduce((acc, e) => acc + computeScore(e), 0));
-                            return dayScore >= 0 ? `+${dayScore}` : `${dayScore}`;
-                        })()} pts
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span style={{
+                            color: '#64748b',
+                            fontSize: '11px',
+                            fontWeight: 500
+                        }}>
+                            {(() => {
+                                const dayScore = (gains.reduce((acc, e) => acc + computeScore(e), 0)) + (deductions.reduce((acc, e) => acc + computeScore(e), 0)) + bountyPoints;
+                                return dayScore >= 0 ? `+${dayScore}` : `${dayScore}`;
+                            })()} pts
+                        </span>
+                        {bountyPoints > 0 && (
+                            <span style={{ color: '#6ee7b7', fontSize: '11px', background: '#113227', padding: '2px 6px', borderRadius: '6px', border: '1px solid rgba(110, 231, 183, 0.35)' }}>
+                                Weekly bounty +{bountyPoints}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
 

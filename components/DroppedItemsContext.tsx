@@ -10,6 +10,8 @@ interface DroppedItemsContextValue {
     notifyWeeklyGoalsUpdate: () => void;
     weeklyGoalsState: WeeklyGoalsState;
     setWeeklyGoalsState: React.Dispatch<React.SetStateAction<WeeklyGoalsState>>;
+    bountyVersion: number;
+    notifyBountyUpdate: () => void;
 }
 
 const DroppedItemsContext = createContext<DroppedItemsContextValue | undefined>(undefined);
@@ -18,6 +20,7 @@ export function DroppedItemsProvider({ children }: { children: React.ReactNode }
     const [ids, setIds] = useState<Set<string>>(new Set());
     const [weeklyGoalsVersion, setWeeklyGoalsVersion] = useState(0);
     const [weeklyGoalsState, setWeeklyGoalsState] = useState<WeeklyGoalsState>({ goals: {} });
+    const [bountyVersion, setBountyVersion] = useState(0);
 
     const replaceAll = useCallback((nextIds: string[]) => {
         setIds(prev => {
@@ -36,6 +39,7 @@ export function DroppedItemsProvider({ children }: { children: React.ReactNode }
     }, []);
 
     const notifyWeeklyGoalsUpdate = useCallback(() => setWeeklyGoalsVersion(v => v + 1), []);
+    const notifyBountyUpdate = useCallback(() => setBountyVersion(v => v + 1), []);
 
     const value = useMemo(() => ({
         selectedIds: ids,
@@ -43,8 +47,10 @@ export function DroppedItemsProvider({ children }: { children: React.ReactNode }
         weeklyGoalsVersion,
         notifyWeeklyGoalsUpdate,
         weeklyGoalsState,
-        setWeeklyGoalsState
-    }), [ids, replaceAll, weeklyGoalsVersion, notifyWeeklyGoalsUpdate, weeklyGoalsState]);
+        setWeeklyGoalsState,
+        bountyVersion,
+        notifyBountyUpdate
+    }), [ids, replaceAll, weeklyGoalsVersion, notifyWeeklyGoalsUpdate, weeklyGoalsState, bountyVersion, notifyBountyUpdate]);
 
     return (
         <DroppedItemsContext.Provider value={value}>

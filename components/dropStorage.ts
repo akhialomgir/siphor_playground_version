@@ -1,11 +1,13 @@
 const DB_NAME = 'dragDropBox';
 const STORE_NAME = 'entries';
 const WEEKLY_STORE_NAME = 'weeklyGoals';
+const WEEKLY_BOUNTY_STORE_NAME = 'weeklyBounties';
 const TOTAL_SCORE_STORE_NAME = 'totalScores';
 const BANK_STORE_NAME = 'bank';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 import type { ScoringCriteria } from '@/lib/scoring';
+import { getWeekKey } from '@/lib/scoring';
 
 export interface BankFixedDeposit {
     id: string;
@@ -54,6 +56,18 @@ export interface WeeklyGoalsState {
     goals: Record<string, WeeklyGoalProgress>;
 }
 
+export interface WeeklyBountyItem {
+    id: string;
+    title: string;
+    points: number;
+    completedDate?: string | null;
+    createdAt: string;
+}
+
+export interface WeeklyBountyState {
+    items: WeeklyBountyItem[];
+}
+
 // Total score accumulation history: { dateKey: cumulativeTotal }
 export type TotalScoreHistory = Record<string, number>;
 
@@ -80,6 +94,9 @@ function openDb(): Promise<IDBDatabase> {
             }
             if (oldVersion < 4 && !db.objectStoreNames.contains(BANK_STORE_NAME)) {
                 db.createObjectStore(BANK_STORE_NAME);
+            }
+            if (oldVersion < 5 && !db.objectStoreNames.contains(WEEKLY_BOUNTY_STORE_NAME)) {
+                db.createObjectStore(WEEKLY_BOUNTY_STORE_NAME);
             }
         };
         request.onsuccess = () => resolve(request.result);
@@ -169,6 +186,81 @@ export async function saveWeeklyGoals(weekKey: string, state: WeeklyGoalsState) 
     } catch (err) {
         // ignore persistence errors
     }
+}
+
+export async function loadWeeklyBounties(weekKey: string): Promise<WeeklyBountyState> {
+    try {
+        const db = await openDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(WEEKLY_BOUNTY_STORE_NAME, 'readonly');
+            const store = tx.objectStore(WEEKLY_BOUNTY_STORE_NAME);
+            const req = store.get(weekKey);
+            req.onsuccess = () => {
+                const payload = (req.result as WeeklyBountyState | undefined) ?? { items: [] };
+                resolve({ items: payload.items ?? [] });
+            };
+            req.onerror = () => reject(req.error ?? new Error('Read failed'));
+        });
+    } catch (err) {
+        return { items: [] };
+    }
+}
+
+export async function saveWeeklyBounties(weekKey: string, state: WeeklyBountyState): Promise<void> {
+    try {
+        const db = await openDb();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(WEEKLY_BOUNTY_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(WEEKLY_BOUNTY_STORE_NAME);
+            const req = store.put(state, weekKey);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error ?? new Error('Write failed'));
+        });
+    } catch (err) {
+        // ignore persistence errors
+    }
+}
+
+export async function addWeeklyBounty(weekKey: string, title: string, points: number): Promise<WeeklyBountyState> {
+    const trimmed = title.trim();
+    if (!trimmed || !Number.isFinite(points) || points <= 0) {
+        const current = await loadWeeklyBounties(weekKey);
+        return current;
+    }
+
+    const state = await loadWeeklyBounties(weekKey);
+    const newItem: WeeklyBountyItem = {
+        id: `bounty-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        title: trimmed,
+        points,
+        completedDate: null,
+        createdAt: new Date().toISOString()
+    };
+
+    const next: WeeklyBountyState = { items: [...state.items, newItem] };
+    await saveWeeklyBounties(weekKey, next);
+    return next;
+}
+
+export async function toggleWeeklyBounty(weekKey: string, bountyId: string, dateKey: string): Promise<WeeklyBountyState> {
+    const state = await loadWeeklyBounties(weekKey);
+    const nextItems = state.items.map(item => {
+        if (item.id !== bountyId) return item;
+        const alreadyCompleted = item.completedDate === dateKey;
+        return {
+            ...item,
+            completedDate: alreadyCompleted ? null : dateKey
+        };
+    });
+    const nextState: WeeklyBountyState = { items: nextItems };
+    await saveWeeklyBounties(weekKey, nextState);
+    return nextState;
+}
+
+export async function getBountyPointsForDate(dateKey: string): Promise<number> {
+    const weekKey = getWeekKey(dateKey);
+    const state = await loadWeeklyBounties(weekKey);
+    return state.items.reduce((acc, item) => acc + (item.completedDate === dateKey ? (item.points ?? 0) : 0), 0);
 }
 
 export async function savePersistedState(dateKey: string, deductions: PersistedEntry[], gains: PersistedEntry[]) {
@@ -267,11 +359,45 @@ export async function listAllWeeklyGoals(): Promise<Array<{ weekKey: string; sta
     }
 }
 
+export async function listAllWeeklyBounties(): Promise<Array<{ weekKey: string; state: WeeklyBountyState }>> {
+    try {
+        const db = await openDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(WEEKLY_BOUNTY_STORE_NAME, 'readonly');
+            const store = tx.objectStore(WEEKLY_BOUNTY_STORE_NAME);
+            const req = store.getAllKeys();
+            req.onsuccess = async () => {
+                const keys = (req.result as string[]).filter(Boolean);
+                const results: Array<{ weekKey: string; state: WeeklyBountyState }> = [];
+                const fetches = keys.map(key => new Promise<void>((res, rej) => {
+                    const r = store.get(key);
+                    r.onsuccess = () => {
+                        const payload = (r.result as WeeklyBountyState | undefined) ?? { items: [] };
+                        results.push({ weekKey: key, state: { items: payload.items ?? [] } });
+                        res();
+                    };
+                    r.onerror = () => rej(r.error ?? new Error('Read failed'));
+                }));
+                try {
+                    await Promise.all(fetches);
+                    resolve(results);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            req.onerror = () => reject(req.error ?? new Error('List keys failed'));
+        });
+    } catch (err) {
+        return [];
+    }
+}
+
 export interface ExportData {
     version: string;
     exportDate: string;
     data: Array<{ dateKey: string; state: PersistedState }>;
     weeklyGoals?: Array<{ weekKey: string; state: WeeklyGoalsState }>;
+    weeklyBounties?: Array<{ weekKey: string; state: WeeklyBountyState }>;
     bankState?: BankState;
     totalScoreHistory?: TotalScoreHistory;
 }
@@ -279,6 +405,7 @@ export interface ExportData {
 export async function exportAllData(): Promise<ExportData> {
     const allStates = await listAllStates();
     const weeklyGoals = await listAllWeeklyGoals();
+    const weeklyBounties = await listAllWeeklyBounties();
     const bankState = await loadBankState();
     const totalScoreHistory = await loadTotalScoreHistory();
     return {
@@ -286,6 +413,7 @@ export async function exportAllData(): Promise<ExportData> {
         exportDate: new Date().toISOString(),
         data: allStates,
         weeklyGoals,
+        weeklyBounties,
         bankState,
         totalScoreHistory
     };
@@ -314,6 +442,18 @@ export async function importAllData(importData: ExportData): Promise<void> {
         await new Promise<void>((resolve, reject) => {
             const tx = db.transaction(WEEKLY_STORE_NAME, 'readwrite');
             const store = tx.objectStore(WEEKLY_STORE_NAME);
+            const req = store.put(state, weekKey);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error ?? new Error('Write failed'));
+        });
+    }
+
+    // Weekly bounties are optional for backward compatibility
+    const weeklyBounties = importData.weeklyBounties ?? [];
+    for (const { weekKey, state } of weeklyBounties) {
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(WEEKLY_BOUNTY_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(WEEKLY_BOUNTY_STORE_NAME);
             const req = store.put(state, weekKey);
             req.onsuccess = () => resolve();
             req.onerror = () => reject(req.error ?? new Error('Write failed'));
@@ -432,7 +572,8 @@ export async function rebuildTotalScoreHistory(initialValue: number): Promise<To
 
     for (const { dateKey, state } of sorted) {
         const dayScore = calculateDayScore(state);
-        cumulative += dayScore;
+        const bountyPoints = await getBountyPointsForDate(dateKey);
+        cumulative += dayScore + bountyPoints;
         history[dateKey] = cumulative;
     }
 
@@ -455,7 +596,8 @@ export async function initializeTotalScoreHistory(): Promise<TotalScoreHistory> 
 
     for (const { dateKey, state } of sorted) {
         const dayScore = calculateDayScore(state);
-        cumulative += dayScore;
+        const bountyPoints = await getBountyPointsForDate(dateKey);
+        cumulative += dayScore + bountyPoints;
         history[dateKey] = cumulative;
     }
 
