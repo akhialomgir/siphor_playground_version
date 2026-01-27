@@ -561,6 +561,19 @@ export default function DragDropBox() {
         }
     };
 
+    const handleBankUndoForGain = (entry: DroppedEntry) => {
+        if (entry.categoryKey !== 'bank') return;
+        const amount = Math.abs(entry.fixedScore ?? 0);
+        if (!amount) return;
+
+        if (entry.name === 'Bank withdrawal') {
+            updateBankState(prev => ({
+                ...prev,
+                demand: (prev.demand ?? 0) + amount
+            }));
+        }
+    };
+
     // 第550-593行，将第555行的 "const promise = " 删除，改为直接调用：
     const allowDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
@@ -1368,6 +1381,7 @@ export default function DragDropBox() {
                                         handleBankUndoForDeduction(entry);
                                         setDeductions(prev => prev.filter(p => p.id !== entry.id));
                                     } else {
+                                        handleBankUndoForGain(entry);
                                         // Simply remove the entry - weekly goals will recalculate automatically
                                         setGains(prev => prev.filter(p => p.id !== entry.id));
                                     }
