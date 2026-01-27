@@ -5,6 +5,7 @@ import scoringData from '@/data/scoring.json';
 import { useDroppedItems } from './DroppedItemsContext';
 import { useSelectedDate } from './DateContext';
 import { getWeekKey, getWeeklyGoals } from '@/lib/scoring';
+import { listAllStates } from './dropStorage';
 
 interface Criteria {
     time: number;
@@ -37,6 +38,7 @@ interface ScoringCategory {
 export default function ScoringDisplay() {
     const [data, setData] = useState<Record<string, ScoringCategory> | null>(null);
     const [weeklyGoalsState, setWeeklyGoalsState] = useState<Record<string, { count: number; rewarded: boolean }>>({});
+    const [targetLastSeenDays, setTargetLastSeenDays] = useState<Record<string, number>>({});
     const { selectedIds, weeklyGoalsState: sharedWeeklyGoalsState } = useDroppedItems();
     const { selectedDate } = useSelectedDate();
 
@@ -51,6 +53,54 @@ export default function ScoringDisplay() {
             setWeeklyGoalsState(sharedWeeklyGoalsState.goals);
         }
     }, [sharedWeeklyGoalsState, selectedIds, selectedDate]);
+
+    // Compute last recorded day distance for each target gain item
+    useEffect(() => {
+        let cancelled = false;
+        const refKey = selectedDate || new Date().toISOString().slice(0, 10);
+        const refDate = new Date(`${refKey}T00:00:00`).getTime();
+        const dayMs = 1000 * 60 * 60 * 24;
+
+        const toDays = (lastKey: string) => {
+            const lastDate = new Date(`${lastKey}T00:00:00`).getTime();
+            const diff = Math.floor((refDate - lastDate) / dayMs);
+            return Math.max(0, diff);
+        };
+
+        listAllStates().then(states => {
+            const latest: Record<string, string> = {};
+
+            states.forEach(({ dateKey, state }) => {
+                (state.gains ?? []).forEach(entry => {
+                    if (entry.categoryKey !== 'targetGains') return;
+                    const current = latest[entry.id];
+                    if (!current || dateKey > current) {
+                        latest[entry.id] = dateKey;
+                    }
+                });
+            });
+
+            const daysMap: Record<string, number> = {};
+            Object.entries(latest).forEach(([id, lastKey]) => {
+                daysMap[id] = toDays(lastKey);
+            });
+
+            // If the item exists on the current page, treat it as today to avoid showing the label
+            selectedIds.forEach(id => {
+                if (id.startsWith('targetGains-')) {
+                    daysMap[id] = 0;
+                }
+            });
+
+            if (!cancelled) setTargetLastSeenDays(daysMap);
+        }).catch(() => {
+            if (!cancelled) setTargetLastSeenDays({});
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedDate, selectedIds]);
 
     if (!data) return <div>Loading...</div>;
 
@@ -164,141 +214,172 @@ export default function ScoringDisplay() {
     return (
         <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#0b1220', color: '#e5e7eb' }}>
             <div style={{ display: 'grid', gap: '20px' }}>
-                {Object.entries(data).map(([categoryKey, category]) => (
-                    <div key={categoryKey} style={{
-                        border: '2px solid #243046',
-                        borderRadius: '8px',
-                        overflow: 'hidden',
-                        backgroundColor: '#0f1625',
-                        boxShadow: '0 6px 20px rgba(0,0,0,0.35)'
-                    }}>
-                        {/* Category header */}
-                        <div style={{
-                            backgroundColor: '#111827',
-                            padding: '12px 16px',
-                            borderBottom: '2px solid #243046',
-                            fontWeight: 600,
-                            fontSize: '16px',
-                            color: '#e5e7eb'
+                {Object.entries(data).map(([categoryKey, category]) => {
+                    const categoryItems = categoryKey === 'targetGains'
+                        ? [...category.items].sort((a, b) => {
+                            const aId = `${categoryKey}-${a.id}`;
+                            const bId = `${categoryKey}-${b.id}`;
+                            const aDays = targetLastSeenDays[aId] ?? Number.POSITIVE_INFINITY;
+                            const bDays = targetLastSeenDays[bId] ?? Number.POSITIVE_INFINITY;
+                            if (aDays === bDays) return a.name.localeCompare(b.name);
+                            return bDays - aDays;
+                        })
+                        : category.items;
+
+                    return (
+                        <div key={categoryKey} style={{
+                            border: '2px solid #243046',
+                            borderRadius: '8px',
+                            overflow: 'hidden',
+                            backgroundColor: '#0f1625',
+                            boxShadow: '0 6px 20px rgba(0,0,0,0.35)'
                         }}>
-                            {getCategoryTitle(categoryKey)}
-                            <span style={{ marginLeft: '12px', fontSize: '12px', color: '#94a3b8' }}>
-                                ({category.scoreType === 'gain' ? 'Gain' : 'Deduction'})
-                            </span>
-                        </div>
+                            {/* Category header */}
+                            <div style={{
+                                backgroundColor: '#111827',
+                                padding: '12px 16px',
+                                borderBottom: '2px solid #243046',
+                                fontWeight: 600,
+                                fontSize: '16px',
+                                color: '#e5e7eb'
+                            }}>
+                                {getCategoryTitle(categoryKey)}
+                                <span style={{ marginLeft: '12px', fontSize: '12px', color: '#94a3b8' }}>
+                                    ({category.scoreType === 'gain' ? 'Gain' : 'Deduction'})
+                                </span>
+                            </div>
 
-                        {/* Item list */}
-                        <div>
-                            {category.items.map((item, index) => {
-                                const hasCriteria = item.criteria && item.criteria.length > 0;
-                                const criteriaNode = renderCriteria(item);
-                                const fullId = `${categoryKey}-${item.id}`;
-                                const isSelected = selectedIds.has(fullId);
+                            {/* Item list */}
+                            <div>
+                                {categoryItems.map((item, index) => {
+                                    const hasCriteria = item.criteria && item.criteria.length > 0;
+                                    const criteriaNode = renderCriteria(item);
+                                    const fullId = `${categoryKey}-${item.id}`;
+                                    const isSelected = selectedIds.has(fullId);
+                                    const lastSeenDays = targetLastSeenDays[fullId];
+                                    const showLastSeen = categoryKey === 'targetGains' && !isSelected;
+                                    const lastSeenLabel = lastSeenDays === undefined
+                                        ? 'No record'
+                                        : (lastSeenDays === 0 ? 'Today' : `${lastSeenDays} days ago`);
 
-                                // Weekly goal info from item.goals array
-                                const weeklyGoalConfig = item.goals?.find(g => g.type === 'weekly');
-                                const weeklyGoalId = weeklyGoalConfig?.id;
-                                const weeklyProgress = weeklyGoalId && weeklyGoalsState[weeklyGoalId] ? weeklyGoalsState[weeklyGoalId] : undefined;
-                                const weeklySegments = weeklyGoalConfig ? weeklyGoalConfig.targetCount : 0;
-                                const weeklyFilled = weeklyGoalConfig ? Math.min(weeklyProgress?.count ?? 0, weeklyGoalConfig.targetCount) : 0;
+                                    // Weekly goal info from item.goals array
+                                    const weeklyGoalConfig = item.goals?.find(g => g.type === 'weekly');
+                                    const weeklyGoalId = weeklyGoalConfig?.id;
+                                    const weeklyProgress = weeklyGoalId && weeklyGoalsState[weeklyGoalId] ? weeklyGoalsState[weeklyGoalId] : undefined;
+                                    const weeklySegments = weeklyGoalConfig ? weeklyGoalConfig.targetCount : 0;
+                                    const weeklyFilled = weeklyGoalConfig ? Math.min(weeklyProgress?.count ?? 0, weeklyGoalConfig.targetCount) : 0;
 
-                                const highlightStyle: React.CSSProperties = isSelected ? {
-                                    backgroundColor: 'rgba(110, 231, 183, 0.14)',
-                                    outline: '1px solid rgba(110, 231, 183, 0.28)',
-                                    borderRadius: '6px'
-                                } : {};
+                                    const highlightStyle: React.CSSProperties = isSelected ? {
+                                        backgroundColor: 'rgba(110, 231, 183, 0.14)',
+                                        outline: '1px solid rgba(110, 231, 183, 0.28)',
+                                        borderRadius: '6px'
+                                    } : {};
 
-                                return (
-                                    <div
-                                        key={item.id}
-                                        draggable
-                                        onDragStart={(e) => {
-                                            const payload = {
-                                                id: `${categoryKey}-${item.id}`,
-                                                name: item.name,
-                                                scoreType: category.scoreType === 'gain' ? 'gain' : 'deduction',
-                                                score: item.score,
-                                                criteria: item.criteria ?? [],
-                                                baseType: item.baseType,
-                                                categoryKey,
-                                                weeklyGoalId: weeklyGoalId
-                                            };
-                                            e.dataTransfer.setData('application/json', JSON.stringify(payload));
-                                        }}
-                                        style={{
-                                            borderBottom: index < category.items.length - 1 ? '1px solid #1f2937' : 'none',
-                                            padding: '12px 16px',
-                                            display: 'grid',
-                                            gridTemplateColumns: '1fr auto',
-                                            rowGap: '6px',
-                                            columnGap: '8px',
-                                            ...highlightStyle
-                                        }}
-                                    >
-                                        {/* Left details */}
-                                        <div>
-                                            <div style={{ marginBottom: hasCriteria ? '8px' : '0' }}>
-                                                <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>
-                                                    {item.name}
-                                                </span>
-                                                <span style={{ marginLeft: '8px', color: '#94a3b8', fontSize: '12px' }}>
-                                                    (ID: {item.id})
-                                                </span>
+                                    return (
+                                        <div
+                                            key={item.id}
+                                            draggable
+                                            onDragStart={(e) => {
+                                                const payload = {
+                                                    id: `${categoryKey}-${item.id}`,
+                                                    name: item.name,
+                                                    scoreType: category.scoreType === 'gain' ? 'gain' : 'deduction',
+                                                    score: item.score,
+                                                    criteria: item.criteria ?? [],
+                                                    baseType: item.baseType,
+                                                    categoryKey,
+                                                    weeklyGoalId: weeklyGoalId
+                                                };
+                                                e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                                            }}
+                                            style={{
+                                                borderBottom: index < categoryItems.length - 1 ? '1px solid #1f2937' : 'none',
+                                                padding: '12px 16px',
+                                                display: 'grid',
+                                                gridTemplateColumns: '1fr auto',
+                                                rowGap: '6px',
+                                                columnGap: '8px',
+                                                ...highlightStyle
+                                            }}
+                                        >
+                                            {/* Left details */}
+                                            <div>
+                                                <div style={{ marginBottom: hasCriteria ? '8px' : '0' }}>
+                                                    <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>
+                                                        {item.name}
+                                                    </span>
+                                                    <span style={{ marginLeft: '8px', color: '#94a3b8', fontSize: '12px' }}>
+                                                        (ID: {item.id})
+                                                    </span>
+                                                </div>
+                                                {item.type && (
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{
+                                                            backgroundColor: '#1f2937',
+                                                            padding: '2px 6px',
+                                                            borderRadius: '3px',
+                                                            fontSize: '12px',
+                                                            color: '#cbd5e1'
+                                                        }}>
+                                                            {item.type}
+                                                        </span>
+                                                        {showLastSeen && (
+                                                            <span style={{
+                                                                backgroundColor: '#1f2937',
+                                                                padding: '2px 6px',
+                                                                borderRadius: '3px',
+                                                                fontSize: '12px',
+                                                                color: '#cbd5e1',
+                                                                whiteSpace: 'nowrap'
+                                                            }}>
+                                                                {lastSeenLabel}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                )}
                                             </div>
-                                            {item.type && (
-                                                <span style={{
-                                                    display: 'inline-block',
-                                                    backgroundColor: '#1f2937',
-                                                    padding: '2px 6px',
-                                                    borderRadius: '3px',
-                                                    fontSize: '12px',
-                                                    color: '#cbd5e1'
-                                                }}>
-                                                    {item.type}
-                                                </span>
+
+                                            {/* Right top-aligned stack: item score + criteria rows */}
+                                            <RightStack>
+                                                {typeof item.score === 'number' && (
+                                                    <Badge variant="pts">{item.score} pts</Badge>
+                                                )}
+                                                {weeklyGoalConfig && (
+                                                    <Badge variant="pts">{weeklyGoalConfig.rewardPoints} pts</Badge>
+                                                )}
+                                                {criteriaNode}
+                                            </RightStack>
+
+                                            {weeklyGoalConfig && weeklySegments > 0 && (
+                                                <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeklySegments}, 1fr)`, gap: '4px', width: '100%', maxWidth: '260px' }}>
+                                                        {Array.from({ length: weeklySegments }).map((_, idx) => {
+                                                            const filled = idx < weeklyFilled;
+                                                            return (
+                                                                <div
+                                                                    key={`${item.id}-seg-${idx}`}
+                                                                    style={{
+                                                                        height: '6px',
+                                                                        borderRadius: '4px',
+                                                                        background: filled ? '#22c55e' : '#1f2937',
+                                                                        border: '1px solid #1f2937'
+                                                                    }}
+                                                                />
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    <span style={{ color: '#cbd5e1', fontSize: '12px', whiteSpace: 'nowrap', marginLeft: '8px' }}>
+                                                        {weeklyFilled}/{weeklyGoalConfig.targetCount}
+                                                    </span>
+                                                </div>
                                             )}
                                         </div>
-
-                                        {/* Right top-aligned stack: item score + criteria rows */}
-                                        <RightStack>
-                                            {typeof item.score === 'number' && (
-                                                <Badge variant="pts">{item.score} pts</Badge>
-                                            )}
-                                            {weeklyGoalConfig && (
-                                                <Badge variant="pts">{weeklyGoalConfig.rewardPoints} pts</Badge>
-                                            )}
-                                            {criteriaNode}
-                                        </RightStack>
-
-                                        {weeklyGoalConfig && weeklySegments > 0 && (
-                                            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
-                                                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeklySegments}, 1fr)`, gap: '4px', width: '100%', maxWidth: '260px' }}>
-                                                    {Array.from({ length: weeklySegments }).map((_, idx) => {
-                                                        const filled = idx < weeklyFilled;
-                                                        return (
-                                                            <div
-                                                                key={`${item.id}-seg-${idx}`}
-                                                                style={{
-                                                                    height: '6px',
-                                                                    borderRadius: '4px',
-                                                                    background: filled ? '#22c55e' : '#1f2937',
-                                                                    border: '1px solid #1f2937'
-                                                                }}
-                                                            />
-                                                        );
-                                                    })}
-                                                </div>
-                                                <span style={{ color: '#cbd5e1', fontSize: '12px', whiteSpace: 'nowrap', marginLeft: '8px' }}>
-                                                    {weeklyFilled}/{weeklyGoalConfig.targetCount}
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
