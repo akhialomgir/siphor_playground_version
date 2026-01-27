@@ -11,6 +11,7 @@ import scoringData from '@/data/scoring.json';
 interface DayTile {
     dateKey: string;
     score: number;
+    bankScore: number;
     isFuture: boolean;
 }
 
@@ -18,13 +19,11 @@ interface HistoryHeatmapProps {
     onDateSelect?: (dateKey: string) => void;
 }
 
-function computeEntryScore(entry: PersistedEntry): number {
+function computeEntryMagnitude(entry: PersistedEntry): number {
     if (entry.scoreType === 'deduction') {
-        // If entry has fixedScore, it's a standard deduction item (fixed or count-based)
         if (entry.fixedScore !== undefined) {
             return Math.abs(entry.fixedScore * (entry.count ?? 1));
         }
-        // If entry has criteria and baseType = 'duration', it's a timer-based deduction
         if (entry.criteria && entry.criteria.length > 0 && entry.baseType === 'duration') {
             const criteria = entry.criteria[0];
             if (criteria && entry.timerSeconds !== undefined) {
@@ -32,29 +31,40 @@ function computeEntryScore(entry: PersistedEntry): number {
                 return Math.ceil(scorePerSecond * entry.timerSeconds);
             }
         }
-        // If entry has customScore (and no fixedScore), it's a custom expense
         if (entry.customScore !== undefined) {
             return Math.abs(entry.customScore);
         }
         return 0;
     }
 
-    // For gains with criteria (tiered)
     if (entry.criteria && entry.criteria.length > 0) {
         const idx = Math.max(0, entry.selectedIndex ?? 0);
         const base = entry.criteria[idx]?.score ?? 0;
-        return base + (entry.bonusActive ? 10 : 0);
+        return base + (entry.bonusActive ? 10 : 0) + (entry.weeklyRewardBonus ?? 0);
     }
 
-    // For fixed score gains
     const base = entry.fixedScore ?? 0;
-    return base + (entry.bonusActive ? 10 : 0);
+    return base + (entry.bonusActive ? 10 : 0) + (entry.weeklyRewardBonus ?? 0);
 }
 
-function computeTotal(state: PersistedState): number {
-    const gains = (state.gains ?? []).reduce((acc, e) => acc + computeEntryScore(e), 0);
-    const deductions = (state.deductions ?? []).reduce((acc, e) => acc + computeEntryScore(e), 0);
-    return gains - deductions;
+function computeTotals(state: PersistedState): { visible: number; bank: number } {
+    let visible = 0;
+    let bank = 0;
+
+    const apply = (entry: PersistedEntry) => {
+        const magnitude = computeEntryMagnitude(entry);
+        const signed = entry.scoreType === 'deduction' ? -magnitude : magnitude;
+        if (entry.categoryKey === 'bank') {
+            bank += signed;
+        } else {
+            visible += signed;
+        }
+    };
+
+    (state.gains ?? []).forEach(apply);
+    (state.deductions ?? []).forEach(apply);
+
+    return { visible, bank };
 }
 
 const TOTAL_WEEKS = 12; // 12 weeks display
@@ -76,9 +86,9 @@ export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
 
         listAllStates().then(all => {
             if (!mounted) return;
-            const scoreMap = new Map<string, number>();
+            const scoreMap = new Map<string, { visible: number; bank: number }>();
             all.forEach(({ dateKey, state }) => {
-                scoreMap.set(dateKey, computeTotal(state));
+                scoreMap.set(dateKey, computeTotals(state));
             });
 
             // Find the starting point (Sunday of the first week to display)
@@ -100,9 +110,11 @@ export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
                     date.setDate(startDate.getDate() + week * 7 + dayOfWeek);
                     const key = date.toISOString().slice(0, 10);
                     const isFuture = date > today;
+                    const totals = scoreMap.get(key);
                     days.push({
                         dateKey: key,
-                        score: isFuture ? 0 : (scoreMap.get(key) ?? 0),
+                        score: isFuture ? 0 : (totals?.visible ?? 0),
+                        bankScore: totals?.bank ?? 0,
                         isFuture
                     });
                 }
@@ -137,7 +149,7 @@ export default function HistoryHeatmap({ onDateSelect }: HistoryHeatmapProps) {
                 <div
                     key={tile.dateKey}
                     className={getTileClass(tile)}
-                    title={`${tile.dateKey} · ${tile.score} pts${tile.isFuture ? ' · upcoming' : ''}`}
+                    title={`${tile.dateKey} · ${tile.score} pts${tile.bankScore ? ` · bank ${tile.bankScore > 0 ? '+' : ''}${tile.bankScore}` : ''}${tile.isFuture ? ' · upcoming' : ''}`}
                     onClick={() => {
                         if (tile.isFuture) return;
                         if (onDateSelect) {
