@@ -1714,17 +1714,19 @@ export default function DragDropBox() {
                 )}
             </div>
 
-            <button
-                className={`${styles.clearButton} ${isPressingClear ? styles.clearButtonActive : ''}`}
-                onPointerDown={startClearHold}
-                onPointerUp={cancelClearHold}
-                onPointerLeave={cancelClearHold}
-                onPointerCancel={cancelClearHold}
-                disabled={!editable}
-                aria-label="Clear all dropped items"
-            >
-                Clear
-            </button>
+            <div style={{ marginTop: '36px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                    className={`${styles.clearButton} ${isPressingClear ? styles.clearButtonActive : ''}`}
+                    onPointerDown={startClearHold}
+                    onPointerUp={cancelClearHold}
+                    onPointerLeave={cancelClearHold}
+                    onPointerCancel={cancelClearHold}
+                    disabled={!editable}
+                    aria-label="Clear all dropped items"
+                >
+                    Clear
+                </button>
+            </div>
 
             {showCalendar && (
                 <Calendar
