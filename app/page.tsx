@@ -10,7 +10,7 @@ export default function Home() {
   return (
     <DateProvider>
       <DroppedItemsProvider>
-        <div className="min-h-screen w-screen bg-[#0b1220] text-slate-100 pb-8">
+        <div className="min-h-screen w-full box-border bg-[#0b1220] text-slate-100 pb-8">
           <div className="grid grid-cols-2 gap-4 p-4">
             <DragDropBox />
             <div className="flex flex-col gap-4">
