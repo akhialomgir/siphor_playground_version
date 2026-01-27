@@ -129,7 +129,8 @@ export default function ScoringDisplay() {
         padding: '4px 8px',
         borderRadius: '4px',
         fontSize: '12px',
-        fontWeight: 500
+        fontWeight: 500,
+        whiteSpace: 'nowrap'
     };
     const badgeStyles = {
         pts: { backgroundColor: '#113227', color: '#6ee7b7' },
@@ -150,6 +151,30 @@ export default function ScoringDisplay() {
     // Render criteria rows (right-aligned badges)
     const renderCriteria = (item: ScoringItem) => {
         if (!item.criteria || item.criteria.length === 0) return null;
+
+        // Compress long duration tiers (e.g., focus) into a single vertical column of chips (no wrapping inside chips)
+        if (item.baseType === 'duration' && item.criteria.length > 3) {
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', width: '100%', overflowX: 'auto' }}>
+                    {item.criteria.map((c, idx) => (
+                        <span
+                            key={`${item.id}-crit-${idx}-${c.time}-${c.score}`}
+                            style={{
+                                backgroundColor: '#1a2333',
+                                color: '#cbd5e1',
+                                borderRadius: '4px',
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                lineHeight: 1.4,
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            {formatTime(c.time)} · {c.score} pts
+                        </span>
+                    ))}
+                </div>
+            );
+        }
 
         const rows = item.criteria.map((c, idx) => {
             let badgeText = '';
@@ -309,9 +334,6 @@ export default function ScoringDisplay() {
                                                 <div style={{ marginBottom: hasCriteria ? '6px' : '0' }}>
                                                     <span style={{ fontWeight: 500, fontSize: '13px', color: '#e5e7eb' }}>
                                                         {item.name}
-                                                    </span>
-                                                    <span style={{ marginLeft: '6px', color: '#94a3b8', fontSize: '11px' }}>
-                                                        (ID: {item.id})
                                                     </span>
                                                 </div>
                                                 {showLastSeen && (
