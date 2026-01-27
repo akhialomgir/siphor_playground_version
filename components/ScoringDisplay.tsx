@@ -250,7 +250,7 @@ export default function ScoringDisplay() {
                             </div>
 
                             {/* Item list */}
-                            <div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px', padding: '8px' }}>
                                 {categoryItems.map((item, index) => {
                                     const hasCriteria = item.criteria && item.criteria.length > 0;
                                     const criteriaNode = renderCriteria(item);
@@ -293,48 +293,37 @@ export default function ScoringDisplay() {
                                                 e.dataTransfer.setData('application/json', JSON.stringify(payload));
                                             }}
                                             style={{
-                                                borderBottom: index < categoryItems.length - 1 ? '1px solid #1f2937' : 'none',
-                                                padding: '12px 16px',
+                                                border: '1px solid #1f2937',
+                                                borderRadius: '6px',
+                                                backgroundColor: '#111827',
+                                                padding: '8px 12px',
                                                 display: 'grid',
                                                 gridTemplateColumns: '1fr auto',
-                                                rowGap: '6px',
-                                                columnGap: '8px',
+                                                rowGap: '4px',
+                                                columnGap: '6px',
                                                 ...highlightStyle
                                             }}
                                         >
                                             {/* Left details */}
                                             <div>
-                                                <div style={{ marginBottom: hasCriteria ? '8px' : '0' }}>
-                                                    <span style={{ fontWeight: 500, fontSize: '14px', color: '#e5e7eb' }}>
+                                                <div style={{ marginBottom: hasCriteria ? '6px' : '0' }}>
+                                                    <span style={{ fontWeight: 500, fontSize: '13px', color: '#e5e7eb' }}>
                                                         {item.name}
                                                     </span>
-                                                    <span style={{ marginLeft: '8px', color: '#94a3b8', fontSize: '12px' }}>
+                                                    <span style={{ marginLeft: '6px', color: '#94a3b8', fontSize: '11px' }}>
                                                         (ID: {item.id})
                                                     </span>
                                                 </div>
-                                                {item.type && (
-                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                                                        <span style={{
-                                                            backgroundColor: '#1f2937',
-                                                            padding: '2px 6px',
-                                                            borderRadius: '3px',
-                                                            fontSize: '12px',
-                                                            color: '#cbd5e1'
-                                                        }}>
-                                                            {item.type}
-                                                        </span>
-                                                        {showLastSeen && (
-                                                            <span style={{
-                                                                backgroundColor: '#1f2937',
-                                                                padding: '2px 6px',
-                                                                borderRadius: '3px',
-                                                                fontSize: '12px',
-                                                                color: '#cbd5e1',
-                                                                whiteSpace: 'nowrap'
-                                                            }}>
-                                                                {lastSeenLabel}
-                                                            </span>
-                                                        )}
+                                                {showLastSeen && (
+                                                    <span style={{
+                                                        backgroundColor: '#1f2937',
+                                                        padding: '2px 6px',
+                                                        borderRadius: '3px',
+                                                        fontSize: '11px',
+                                                        color: '#cbd5e1',
+                                                        whiteSpace: 'nowrap'
+                                                    }}>
+                                                        {lastSeenLabel}
                                                     </span>
                                                 )}
                                             </div>
@@ -351,8 +340,8 @@ export default function ScoringDisplay() {
                                             </RightStack>
 
                                             {weeklyGoalConfig && weeklySegments > 0 && (
-                                                <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
-                                                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeklySegments}, 1fr)`, gap: '4px', width: '100%', maxWidth: '260px' }}>
+                                                <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-start', minWidth: 0 }}>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${weeklySegments}, 1fr)`, gap: '4px', flex: 1, minWidth: 0, maxWidth: '260px' }}>
                                                         {Array.from({ length: weeklySegments }).map((_, idx) => {
                                                             const filled = idx < weeklyFilled;
                                                             return (
@@ -368,7 +357,7 @@ export default function ScoringDisplay() {
                                                             );
                                                         })}
                                                     </div>
-                                                    <span style={{ color: '#cbd5e1', fontSize: '12px', whiteSpace: 'nowrap', marginLeft: '8px' }}>
+                                                    <span style={{ color: '#cbd5e1', fontSize: '11px', whiteSpace: 'nowrap', marginLeft: '6px', flexShrink: 0 }}>
                                                         {weeklyFilled}/{weeklyGoalConfig.targetCount}
                                                     </span>
                                                 </div>
